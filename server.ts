@@ -160,9 +160,16 @@ async function runCampaign(jobId: string, leads: any[], smtps: any[]) {
     let body = spin(lead.BODY || '');
 
     Object.keys(lead).forEach(key => {
-      const regex = new RegExp(`{{${key}}}`, 'g');
-      subject = subject.replace(regex, lead[key]);
-      body = body.replace(regex, lead[key]);
+      // Replace {{KEY}}
+      const regexWithBraces = new RegExp(`{{${key}}}`, 'gi');
+      subject = subject.replace(regexWithBraces, lead[key]);
+      body = body.replace(regexWithBraces, lead[key]);
+
+      // Also replace plain KEY if it's a common placeholder like NAME, EMAIL, etc.
+      // This makes it more user-friendly
+      const plainRegex = new RegExp(`\\b${key}\\b`, 'g'); 
+      subject = subject.replace(plainRegex, lead[key]);
+      body = body.replace(plainRegex, lead[key]);
     });
 
     try {

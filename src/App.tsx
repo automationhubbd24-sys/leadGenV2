@@ -39,6 +39,21 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+function useStickyState<T>(defaultValue: T, key: string): [T, React.Dispatch<React.SetStateAction<T>>] {
+  const [value, setValue] = useState<T>(() => {
+    const stickyValue = window.localStorage.getItem(key);
+    return stickyValue !== null
+      ? JSON.parse(stickyValue)
+      : defaultValue;
+  });
+
+  useEffect(() => {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  }, [key, value]);
+
+  return [value, setValue];
+}
+
 export default function App() {
   const [params, setParams] = useState<SearchParams>({
     query: '',
@@ -56,14 +71,10 @@ export default function App() {
   const [isEnriching, setIsEnriching] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
-  const [activeTab, setActiveTab] = useState<'search' | 'email'>('search');
-
-  useEffect(() => {
-    localStorage.setItem('activeTab', activeTab);
-  }, [activeTab]);
+  const [activeTab, setActiveTab] = useStickyState<'search' | 'email'>('search', 'activeTab');
 
   // SMTP States
-  const [smtps, setSmtps] = useState<any[]>([]);
+  const [smtps, setSmtps] = useStickyState<any[]>([], 'smtps');
   const [newSmtp, setNewSmtp] = useState({ host: 'smtp.gmail.com', port: 587, user: '', pass: '', senderName: '', dailyLimit: 100 });
 
   // Campaign States
@@ -73,17 +84,6 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [job, setJob] = useState<any>(null);
   const [isCampaignRunning, setIsCampaignRunning] = useState(false);
-
-  useEffect(() => {
-    const savedSmtps = localStorage.getItem('smtps');
-    if (savedSmtps) {
-      setSmtps(JSON.parse(savedSmtps));
-    }
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem('smtps', JSON.stringify(smtps));
-  }, [smtps]);
 
   // Poll for job status
   useEffect(() => {
@@ -108,15 +108,10 @@ export default function App() {
   }, [job]);
 
 
-  const [apiKeys, setApiKeys] = useState({
-    gemini: localStorage.getItem('GEMINI_API_KEY') || '',
-    yelp: localStorage.getItem('YELP_API_KEY') || ''
-  });
-
-  useEffect(() => {
-    localStorage.setItem('GEMINI_API_KEY', apiKeys.gemini);
-    localStorage.setItem('YELP_API_KEY', apiKeys.yelp);
-  }, [apiKeys]);
+  const [apiKeys, setApiKeys] = useStickyState({
+    gemini: '',
+    yelp: ''
+  }, 'apiKeys');
 
   const handleAddSmtp = () => {
     if (newSmtp.user && newSmtp.pass && newSmtp.host && newSmtp.senderName) {
@@ -660,79 +655,131 @@ export default function App() {
       {/* Settings Modal */}
       <AnimatePresence>
         {showSettings && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowSettings(false)}
-              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-            />
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden"
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+            onClick={() => setShowSettings(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 20 }}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden"
+              onClick={e => e.stopPropagation()}
             >
-              <div className="p-8">
-                <div className="flex items-center justify-between mb-8">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-black rounded-xl flex items-center justify-center">
-                      <Key className="text-white w-5 h-5" />
+              <div className="p-6 border-b border-black/5 flex items-center justify-between">
+                <h2 className="text-lg font-bold">Settings</h2>
+                <button onClick={() => setShowSettings(false)} className="p-2 hover:bg-black/5 rounded-lg">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
+                <div className="space-y-2">
+                  <h3 className="font-semibold">API Keys</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-medium text-black/60 mb-1.5">Gemini API Key</label>
+                      <input 
+                        type="password"
+                        placeholder="Enter your Gemini API Key"
+                        className="w-full px-4 py-2 bg-[#F1F3F5] border-none rounded-xl text-sm"
+                        value={apiKeys.gemini}
+                        onChange={e => setApiKeys(k => ({ ...k, gemini: e.target.value }))}
+                      />
                     </div>
                     <div>
-                      <h2 className="text-xl font-bold">API Settings</h2>
-                      <p className="text-sm text-black/50">Configure your personal keys</p>
+                      <label className="block text-xs font-medium text-black/60 mb-1.5">Yelp API Key</label>
+                      <input 
+                        type="password"
+                        placeholder="Enter your Yelp API Key"
+                        className="w-full px-4 py-2 bg-[#F1F3F5] border-none rounded-xl text-sm"
+                        value={apiKeys.yelp}
+                        onChange={e => setApiKeys(k => ({ ...k, yelp: e.target.value }))}
+                      />
                     </div>
                   </div>
-                  <button 
-                    onClick={() => setShowSettings(false)}
-                    className="p-2 hover:bg-black/5 rounded-full transition-colors"
-                  >
-                    <X className="w-5 h-5 text-black/40" />
-                  </button>
                 </div>
 
-                <div className="space-y-6">
-                  <div>
-                    <label className="block text-xs font-semibold text-black/60 mb-2 uppercase tracking-wider">Gemini API Key</label>
-                    <input 
-                      type="password"
-                      placeholder="Enter Gemini API Key"
-                      className="w-full px-4 py-3 bg-[#F1F3F5] border-none rounded-xl text-sm focus:ring-2 focus:ring-black/5 transition-all font-mono"
-                      value={apiKeys.gemini}
-                      onChange={e => setApiKeys(k => ({ ...k, gemini: e.target.value }))}
-                    />
-                    <p className="mt-2 text-[11px] text-black/40">
-                      Required for Google Maps search & Email enrichment. 
-                      Get it from <a href="https://aistudio.google.com/app/apikey" target="blank" rel="noopener noreferrer" className="text-black underline">Google AI Studio</a>.
-                    </p>
+                <div className="border-t border-black/5 pt-6 space-y-4">
+                  <h3 className="font-semibold">SMTP Accounts</h3>
+                  <div className="space-y-2">
+                    {smtps.map(smtp => (
+                      <div key={smtp.id} className="flex items-center gap-4 p-3 bg-gray-50 rounded-xl">
+                        <div className="w-8 h-8 bg-gray-200 rounded-lg flex items-center justify-center">
+                          <Mail className="w-4 h-4 text-gray-500" />
+                        </div>
+                        <div className="flex-grow">
+                          <p className="font-bold text-sm">{smtp.senderName} <span className="text-xs text-gray-500">({smtp.user})</span></p>
+                          <p className="text-xs text-gray-500">Host: {smtp.host}:{smtp.port} | Daily Limit: {smtp.dailyLimit}</p>
+                        </div>
+                        <button onClick={() => handleDeleteSmtp(smtp.id)} className="p-2 text-red-500 hover:bg-red-100 rounded-lg">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                     {smtps.length === 0 && (
+                      <p className="text-center text-xs text-gray-400 py-4">No SMTP accounts added.</p>
+                    )}
                   </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-black/60 mb-2 uppercase tracking-wider">Yelp API Key</label>
-                    <input 
-                      type="password"
-                      placeholder="Enter Yelp API Key"
-                      className="w-full px-4 py-3 bg-[#F1F3F5] border-none rounded-xl text-sm focus:ring-2 focus:ring-black/5 transition-all font-mono"
-                      value={apiKeys.yelp}
-                      onChange={e => setApiKeys(k => ({ ...k, yelp: e.target.value }))}
-                    />
-                    <p className="mt-2 text-[11px] text-black/40">
-                      Required for Yelp search. Get it from <a href="https://www.yelp.com/developers/v3/manage_app" target="blank" rel="noopener noreferrer" className="text-black underline">Yelp Developers</a>.
-                    </p>
+                  <div className="p-4 border border-dashed rounded-xl space-y-4">
+                    <h4 className="font-semibold text-sm">Add New SMTP Account</h4>
+                    <div className="grid grid-cols-2 gap-4">
+                       <input 
+                        type="text"
+                        placeholder="Sender Name (e.g. Alex)"
+                        className="w-full px-4 py-2 bg-[#F1F3F5] border-none rounded-xl text-sm"
+                        value={newSmtp.senderName}
+                        onChange={e => setNewSmtp(s => ({ ...s, senderName: e.target.value }))}
+                      />
+                       <input 
+                        type="email"
+                        placeholder="SMTP User (your email)"
+                        className="w-full px-4 py-2 bg-[#F1F3F5] border-none rounded-xl text-sm"
+                        value={newSmtp.user}
+                        onChange={e => setNewSmtp(s => ({ ...s, user: e.target.value }))}
+                      />
+                    </div>
+                    <div className="grid grid-cols-3 gap-4">
+                      <input 
+                        type="text"
+                        placeholder="SMTP Host"
+                        className="w-full px-4 py-2 bg-[#F1F3F5] border-none rounded-xl text-sm"
+                        value={newSmtp.host}
+                        onChange={e => setNewSmtp(s => ({ ...s, host: e.target.value }))}
+                      />
+                      <input 
+                        type="number"
+                        placeholder="Port"
+                        className="w-full px-4 py-2 bg-[#F1F3F5] border-none rounded-xl text-sm"
+                        value={newSmtp.port}
+                        onChange={e => setNewSmtp(s => ({ ...s, port: parseInt(e.target.value) || 0 }))}
+                      />
+                       <input 
+                        type="number"
+                        placeholder="Daily Limit"
+                        className="w-full px-4 py-2 bg-[#F1F3F5] border-none rounded-xl text-sm"
+                        value={newSmtp.dailyLimit}
+                        onChange={e => setNewSmtp(s => ({ ...s, dailyLimit: parseInt(e.target.value) || 0 }))}
+                      />
+                    </div>
+                     <input 
+                        type="password"
+                        placeholder="SMTP Password (or App Password)"
+                        className="w-full px-4 py-2 bg-[#F1F3F5] border-none rounded-xl text-sm"
+                        value={newSmtp.pass}
+                        onChange={e => setNewSmtp(s => ({ ...s, pass: e.target.value }))}
+                      />
+                    <button onClick={handleAddSmtp} className="w-full py-2 bg-black text-white rounded-lg text-sm font-bold flex items-center justify-center gap-2">
+                      <PlusCircle className="w-4 h-4" />
+                      Add Account
+                    </button>
                   </div>
-
-                  <button 
-                    onClick={() => setShowSettings(false)}
-                    className="w-full py-4 bg-black text-white rounded-xl text-sm font-bold hover:bg-black/80 transition-all mt-4"
-                  >
-                    Save & Close
-                  </button>
                 </div>
               </div>
             </motion.div>
-          </div>
+          </motion.div>
         )}
       </AnimatePresence>
 

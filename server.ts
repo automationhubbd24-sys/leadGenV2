@@ -191,4 +191,7 @@ async function runCampaign(jobId: string, leads: any[], smtps: any[]) {
   job.endTime = Date.now();
 }
 
-startServer();
+startServer().catch(err => {
+  console.error("Failed to start server:", err);
+  process.exit(1);
+});

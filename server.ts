@@ -148,7 +148,7 @@ async function runCampaign(jobId: string, leads: any[], smtps: any[]) {
     const transporter = nodemailer.createTransport({
       host: smtpConfig.host,
       port: smtpConfig.port,
-      secure: smtpConfig.port === 465 || smtpConfig.port === 587 ? true : false, // Auto secure for common ports
+      secure: smtpConfig.port === 465, // true for 465, false for other ports like 587
       auth: {
         user: smtpConfig.user,
         pass: smtpConfig.pass,

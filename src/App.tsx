@@ -58,6 +58,10 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [activeTab, setActiveTab] = useState<'search' | 'email'>('search');
 
+  useEffect(() => {
+    localStorage.setItem('activeTab', activeTab);
+  }, [activeTab]);
+
   // SMTP States
   const [smtps, setSmtps] = useState<any[]>([]);
   const [newSmtp, setNewSmtp] = useState({ host: 'smtp.gmail.com', port: 587, user: '', pass: '', senderName: '', dailyLimit: 100 });
@@ -644,6 +648,10 @@ export default function App() {
             job={job}
             isCampaignRunning={isCampaignRunning}
             campaignFile={campaignFile}
+            campaignPreview={campaignPreview}
+            campaignError={campaignError}
+            fileInputRef={fileInputRef}
+            handleFileChange={handleFileChange}
             handleStartCampaign={handleStartCampaign}
           />
         )}

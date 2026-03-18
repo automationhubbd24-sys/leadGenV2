@@ -100,7 +100,8 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), "dist");
+    // Serve static files from the dist directory in production
+    const distPath = path.resolve(process.cwd(), "dist");
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
@@ -147,7 +148,7 @@ async function runCampaign(jobId: string, leads: any[], smtps: any[]) {
     const transporter = nodemailer.createTransport({
       host: smtpConfig.host,
       port: smtpConfig.port,
-      secure: smtpConfig.port === 465,
+      secure: smtpConfig.port === 465 || smtpConfig.port === 587 ? true : false, // Auto secure for common ports
       auth: {
         user: smtpConfig.user,
         pass: smtpConfig.pass,

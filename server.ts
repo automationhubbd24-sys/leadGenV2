@@ -128,76 +128,109 @@ function spin(text: string): string {
 // Main campaign runner function
 async function runCampaign(jobId: string, leads: any[], smtps: any[]) {
   const job = jobs[jobId];
-  let smtpIndex = 0;
+  let currentSmtpIndex = 0;
+  const activeSmtps = smtps.map(s => ({ ...s, isInvalid: false }));
 
   for (const lead of leads) {
-    const smtpConfig = smtps[smtpIndex];
-    const dailyLimit = smtpConfig.dailyLimit || 100; // Default limit
+    let emailSent = false;
+    let attempts = 0;
 
-    // Check daily limit for this SMTP
-    const sentToday = job.results.filter(
-      (r: any) => r.smtpUser === smtpConfig.user && new Date(r.timestamp).toDateString() === new Date().toDateString()
-    ).length;
+    // Try to send the email using available SMTPs in rotation
+    while (!emailSent && attempts < activeSmtps.length) {
+      const smtpConfig = activeSmtps[currentSmtpIndex];
+      
+      // Skip if this SMTP is marked as invalid or reached its limit
+      const dailyLimit = smtpConfig.dailyLimit || 100;
+      const sentToday = job.results.filter(
+        (r: any) => r.smtpUser === smtpConfig.user && 
+        r.status === 'sent' &&
+        new Date(r.timestamp).toDateString() === new Date().toDateString()
+      ).length;
 
-    if (sentToday >= dailyLimit) {
-      // Move to next SMTP if limit reached
-      smtpIndex = (smtpIndex + 1) % smtps.length;
-      continue; // In a real scenario, you might want to requeue this lead
-    }
+      if (smtpConfig.isInvalid || sentToday >= dailyLimit) {
+        currentSmtpIndex = (currentSmtpIndex + 1) % activeSmtps.length;
+        attempts++;
+        continue;
+      }
 
-    const transporter = nodemailer.createTransport({
-      host: smtpConfig.host,
-      port: smtpConfig.port,
-      secure: smtpConfig.port === 465, // true for 465, false for other ports like 587
-      auth: {
-        user: smtpConfig.user,
-        pass: smtpConfig.pass,
-      },
-    });
-
-    // Normalize lead keys to uppercase for easier matching
-    const normalizedLead: any = {};
-    Object.keys(lead).forEach(k => normalizedLead[k.toUpperCase()] = lead[k]);
-
-    // Process spintax and personalization
-    let subject = spin(normalizedLead.SUBJECT || '');
-    let body = spin(normalizedLead.BODY || '');
-
-    Object.keys(normalizedLead).forEach(key => {
-      const val = String(normalizedLead[key] || '');
-      // Replace {{KEY}}
-      const regexWithBraces = new RegExp(`{{${key}}}`, 'gi');
-      subject = subject.replace(regexWithBraces, val);
-      body = body.replace(regexWithBraces, val);
-
-      // Also replace plain KEY if it's a common placeholder
-      // For custom keys like BUSINESS_TYPE or OFFER_DETAILS, 
-      // they will be handled here as well since we iterate over all keys
-      const plainRegex = new RegExp(`\\b${key}\\b`, 'g'); 
-      subject = subject.replace(plainRegex, val);
-      body = body.replace(plainRegex, val);
-    });
-
-    try {
-      await transporter.sendMail({
-        from: `"${smtpConfig.senderName}" <${smtpConfig.user}>`,
-        to: normalizedLead.EMAIL,
-        subject: subject,
-        html: body,
+      const transporter = nodemailer.createTransport({
+        host: smtpConfig.host,
+        port: smtpConfig.port,
+        secure: smtpConfig.port === 465,
+        auth: {
+          user: smtpConfig.user,
+          pass: smtpConfig.pass,
+        },
+        // Add timeout to quickly skip unresponsive servers
+        connectionTimeout: 10000, 
+        greetingTimeout: 5000,
       });
 
-      job.sent++;
-      job.results.push({ email: lead.EMAIL, status: 'sent', smtpUser: smtpConfig.user, timestamp: Date.now() });
-    } catch (error: any) {
-      job.failed++;
-      job.results.push({ email: lead.EMAIL, status: 'failed', error: error.message, smtpUser: smtpConfig.user, timestamp: Date.now() });
+      // Normalize lead keys
+      const normalizedLead: any = {};
+      Object.keys(lead).forEach(k => normalizedLead[k.toUpperCase()] = lead[k]);
+
+      let subject = spin(normalizedLead.SUBJECT || '');
+      let body = spin(normalizedLead.BODY || '');
+
+      Object.keys(normalizedLead).forEach(key => {
+        const val = String(normalizedLead[key] || '');
+        const regexWithBraces = new RegExp(`{{${key}}}`, 'gi');
+        subject = subject.replace(regexWithBraces, val);
+        body = body.replace(regexWithBraces, val);
+        const plainRegex = new RegExp(`\\b${key}\\b`, 'g'); 
+        subject = subject.replace(plainRegex, val);
+        body = body.replace(plainRegex, val);
+      });
+
+      try {
+        await transporter.sendMail({
+          from: `"${smtpConfig.senderName}" <${smtpConfig.user}>`,
+          to: normalizedLead.EMAIL,
+          subject: subject,
+          html: body,
+        });
+
+        job.sent++;
+        job.results.push({ 
+          email: normalizedLead.EMAIL, 
+          status: 'sent', 
+          smtpUser: smtpConfig.user, 
+          timestamp: Date.now() 
+        });
+        emailSent = true;
+        // Move to next SMTP for the NEXT lead
+        currentSmtpIndex = (currentSmtpIndex + 1) % activeSmtps.length;
+      } catch (error: any) {
+        console.error(`SMTP Error (${smtpConfig.user}):`, error.message);
+        
+        // Check if error is authentication or connection related (invalid SMTP)
+        const isAuthError = error.code === 'EAUTH' || error.responseCode === 535;
+        const isConnError = error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT';
+
+        if (isAuthError || isConnError) {
+          smtpConfig.isInvalid = true;
+          console.log(`Marking SMTP ${smtpConfig.user} as invalid and rotating...`);
+        }
+
+        // Rotate to next SMTP and try again for THIS lead
+        currentSmtpIndex = (currentSmtpIndex + 1) % activeSmtps.length;
+        attempts++;
+      }
     }
 
-    // Rotate to the next SMTP server
-    smtpIndex = (smtpIndex + 1) % smtps.length;
+    if (!emailSent) {
+      job.failed++;
+      job.results.push({ 
+        email: lead.EMAIL, 
+        status: 'failed', 
+        error: 'No valid or available SMTP servers found for this lead.', 
+        timestamp: Date.now() 
+      });
+    }
 
-    // Adaptive delay
-    const delay = smtps.length > 1 ? 2000 : 10000; // 2s for multi, 10s for single
+    // Delay between leads
+    const delay = activeSmtps.length > 1 ? 2000 : 10000;
     await new Promise(resolve => setTimeout(resolve, delay));
   }
 

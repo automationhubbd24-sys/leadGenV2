@@ -64,6 +64,8 @@ export default function App() {
 
   // Campaign States
   const [campaignFile, setCampaignFile] = useState<File | null>(null);
+  const [campaignPreview, setCampaignPreview] = useState<any[]>([]);
+  const [campaignError, setCampaignError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [job, setJob] = useState<any>(null);
   const [isCampaignRunning, setIsCampaignRunning] = useState(false);
@@ -124,9 +126,45 @@ export default function App() {
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      setCampaignFile(e.target.files[0]);
-    }
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setCampaignFile(file);
+    setCampaignError(null);
+    setCampaignPreview([]);
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const data = event.target?.result;
+        const workbook = XLSX.read(data, { type: 'binary' });
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
+        const json = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+        
+        if (json.length < 2) {
+          setCampaignError('File is empty or has no data rows.');
+          return;
+        }
+
+        const headers: string[] = json[0] as string[];
+        const requiredHeaders = ['EMAIL', 'NAME', 'SUBJECT', 'BODY'];
+        const missingHeaders = requiredHeaders.filter(h => !headers.map(th => th.toUpperCase()).includes(h));
+
+        if (missingHeaders.length > 0) {
+          setCampaignError(`Missing required columns: ${missingHeaders.join(', ')}`);
+          return;
+        }
+
+        const jsonData = XLSX.utils.sheet_to_json(sheet);
+        setCampaignPreview(jsonData.slice(0, 5)); // Show preview of first 5 rows
+
+      } catch (err) {
+        setCampaignError('Invalid file format. Please upload a valid .xlsx or .csv file.');
+        console.error(err);
+      }
+    };
+    reader.readAsBinaryString(file);
   };
 
   const handleStartCampaign = async () => {
@@ -335,7 +373,7 @@ export default function App() {
               className="p-2 hover:bg-black/5 rounded-lg transition-colors"
               title="Settings"
             >
-              <Settings className="w-5 h-5 text-black/60" />
+              <Wrench className="w-5 h-5 text-black/60" />
             </button>
             {leads.length > 0 && (
               <div className="flex items-center gap-2">
@@ -606,8 +644,6 @@ export default function App() {
             job={job}
             isCampaignRunning={isCampaignRunning}
             campaignFile={campaignFile}
-            fileInputRef={fileInputRef}
-            handleFileChange={handleFileChange}
             handleStartCampaign={handleStartCampaign}
           />
         )}
@@ -710,7 +746,7 @@ export default function App() {
   );
 }
 
-function BulkEmailUI({ job, isCampaignRunning, campaignFile, fileInputRef, handleFileChange, handleStartCampaign }: any) {
+function BulkEmailUI({ job, isCampaignRunning, campaignFile, campaignPreview, campaignError, fileInputRef, handleFileChange, handleStartCampaign }: any) {
   const progress = job ? (job.sent + job.failed) / job.total * 100 : 0;
 
   return (
@@ -721,25 +757,56 @@ function BulkEmailUI({ job, isCampaignRunning, campaignFile, fileInputRef, handl
         <div className="bg-white rounded-2xl p-6 shadow-sm border border-black/5 space-y-6">
           <h2 className="text-lg font-bold flex items-center gap-2"><span className="bg-black text-white rounded-full w-6 h-6 flex items-center justify-center text-xs">1</span> Launch New Campaign</h2>
           
-          <div className="space-y-2">
-            <label className="block text-xs font-medium text-black/60 uppercase tracking-wide">Upload Spreadsheet</label>
-            <div 
-              className="border-2 border-dashed border-black/10 rounded-xl p-8 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-black/5 transition-colors"
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <UploadCloud className="w-8 h-8 text-black/30 mb-2" />
-              {campaignFile ? (
-                <p className="font-semibold text-sm">{campaignFile.name}</p>
-              ) : (
-                <p className="font-semibold text-sm">Click to upload a .xlsx or .csv file</p>
-              )}
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-medium text-black/60 uppercase tracking-wide mb-2">Upload Spreadsheet</label>
+              <div 
+                className="border-2 border-dashed border-black/10 rounded-xl p-6 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-black/5 transition-colors"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <UploadCloud className="w-8 h-8 text-black/30 mb-2" />
+                <p className="font-semibold text-sm">{campaignFile ? campaignFile.name : 'Click to upload a .xlsx or .csv file'}</p>
+              </div>
+              <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept=".xlsx, .csv" />
             </div>
-            <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept=".xlsx, .csv" />
+
+            {campaignError && (
+              <div className="bg-red-50 text-red-700 text-xs font-semibold p-3 rounded-lg flex items-center gap-2">
+                <AlertCircle className="w-4 h-4" />
+                {campaignError}
+              </div>
+            )}
+
+            {campaignPreview.length > 0 && (
+              <div className="space-y-2">
+                <h3 className="text-xs font-bold uppercase text-black/40">Data Preview (First 5 Rows)</h3>
+                <div className="overflow-x-auto rounded-lg border border-black/5">
+                  <table className="w-full text-xs">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        {Object.keys(campaignPreview[0]).map(key => (
+                          <th key={key} className="px-4 py-2 text-left font-semibold">{key}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {campaignPreview.map((row, i) => (
+                        <tr key={i}>
+                          {Object.values(row).map((val: any, j) => (
+                            <td key={j} className="px-4 py-2 whitespace-nowrap truncate max-w-xs">{String(val)}</td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
 
           <button 
             onClick={handleStartCampaign}
-            disabled={isCampaignRunning || !campaignFile}
+            disabled={isCampaignRunning || !campaignFile || !!campaignError || campaignPreview.length === 0}
             className="w-full py-3 bg-black text-white rounded-xl text-sm font-bold hover:bg-black/80 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
           >
             {isCampaignRunning ? (

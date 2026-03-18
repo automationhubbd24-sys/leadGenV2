@@ -170,7 +170,9 @@ async function runCampaign(jobId: string, leads: any[], smtps: any[]) {
       subject = subject.replace(regexWithBraces, val);
       body = body.replace(regexWithBraces, val);
 
-      // Also replace plain KEY if it's a common placeholder like NAME, EMAIL, etc.
+      // Also replace plain KEY if it's a common placeholder
+      // For custom keys like BUSINESS_TYPE or OFFER_DETAILS, 
+      // they will be handled here as well since we iterate over all keys
       const plainRegex = new RegExp(`\\b${key}\\b`, 'g'); 
       subject = subject.replace(plainRegex, val);
       body = body.replace(plainRegex, val);

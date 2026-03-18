@@ -174,17 +174,17 @@ export default function App() {
 
   const handleStartCampaign = async () => {
     if (!campaignFile) {
-      setError('Please upload a campaign sheet.');
+      setCampaignError('Please upload a campaign sheet.');
       return;
     }
     if (smtps.length === 0) {
-      setError('Please add at least one SMTP account in settings.');
+      setCampaignError('Please add at least one SMTP account in settings.');
       setShowSettings(true);
       return;
     }
 
     setIsCampaignRunning(true);
-    setError(null);
+    setCampaignError(null);
 
     const formData = new FormData();
     formData.append('sheet', campaignFile);
@@ -199,11 +199,11 @@ export default function App() {
       if (res.ok) {
         setJob(data);
       } else {
-        setError(data.error || 'Failed to start campaign.');
+        setCampaignError(data.error || 'Failed to start campaign.');
         setIsCampaignRunning(false);
       }
     } catch (err) {
-      setError('An unexpected error occurred.');
+      setCampaignError('An unexpected error occurred.');
       setIsCampaignRunning(false);
     }
   };

@@ -77,6 +77,7 @@ export default function App() {
   const [isEnriching, setIsEnriching] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<'api' | 'smtp'>('api');
   const [activeTab, setActiveTab] = useStickyState<'search' | 'email'>('search', 'activeTab');
 
   // SMTP States
@@ -118,6 +119,21 @@ export default function App() {
     gemini: '',
     yelp: ''
   }, 'apiKeys');
+
+  const [tempApiKeys, setTempApiKeys] = useState({ gemini: '', yelp: '' });
+
+  // Sync temp keys when modal opens
+  useEffect(() => {
+    if (showSettings) {
+      setTempApiKeys(apiKeys);
+    }
+  }, [showSettings]);
+
+  const handleSaveApiKeys = () => {
+    setApiKeys(tempApiKeys);
+    setError(null);
+    // Add a small feedback or just close
+  };
 
   const handleAddSmtp = () => {
     if (newSmtp.user && newSmtp.pass && newSmtp.host && newSmtp.senderName) {
@@ -676,113 +692,176 @@ export default function App() {
               onClick={e => e.stopPropagation()}
             >
               <div className="p-6 border-b border-black/5 flex items-center justify-between">
-                <h2 className="text-lg font-bold">Settings</h2>
+                <div className="flex items-center gap-4">
+                  <button 
+                    onClick={() => setSettingsTab('api')}
+                    className={cn(
+                      "text-sm font-bold pb-1 border-b-2 transition-all",
+                      settingsTab === 'api' ? "border-black text-black" : "border-transparent text-black/40"
+                    )}
+                  >
+                    Lead Search APIs
+                  </button>
+                  <button 
+                    onClick={() => setSettingsTab('smtp')}
+                    className={cn(
+                      "text-sm font-bold pb-1 border-b-2 transition-all",
+                      settingsTab === 'smtp' ? "border-black text-black" : "border-transparent text-black/40"
+                    )}
+                  >
+                    Bulk Email SMTPs
+                  </button>
+                </div>
                 <button onClick={() => setShowSettings(false)} className="p-2 hover:bg-black/5 rounded-lg">
                   <X className="w-5 h-5" />
                 </button>
               </div>
               <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
-                <div className="space-y-2">
-                  <h3 className="font-semibold">API Keys</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-medium text-black/60 mb-1.5">Gemini API Key</label>
-                      <input 
-                        type="password"
-                        placeholder="Enter your Gemini API Key"
-                        className="w-full px-4 py-2 bg-[#F1F3F5] border-none rounded-xl text-sm"
-                        value={apiKeys.gemini}
-                        onChange={e => setApiKeys(k => ({ ...k, gemini: e.target.value }))}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-black/60 mb-1.5">Yelp API Key</label>
-                      <input 
-                        type="password"
-                        placeholder="Enter your Yelp API Key"
-                        className="w-full px-4 py-2 bg-[#F1F3F5] border-none rounded-xl text-sm"
-                        value={apiKeys.yelp}
-                        onChange={e => setApiKeys(k => ({ ...k, yelp: e.target.value }))}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="border-t border-black/5 pt-6 space-y-4">
-                  <h3 className="font-semibold">SMTP Accounts</h3>
-                  <div className="space-y-2">
-                    {smtps.map(smtp => (
-                      <div key={smtp.id} className="flex items-center gap-4 p-3 bg-gray-50 rounded-xl">
-                        <div className="w-8 h-8 bg-gray-200 rounded-lg flex items-center justify-center">
-                          <Mail className="w-4 h-4 text-gray-500" />
+                {settingsTab === 'api' ? (
+                  <div className="space-y-6">
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-medium text-black/60 mb-1.5 uppercase tracking-wider">Gemini API Key (Google Maps)</label>
+                          <input 
+                            type="password"
+                            placeholder="Enter your Gemini API Key"
+                            className="w-full px-4 py-2.5 bg-[#F1F3F5] border-none rounded-xl text-sm focus:ring-2 focus:ring-black/5 transition-all"
+                            value={tempApiKeys.gemini}
+                            onChange={e => setTempApiKeys(k => ({ ...k, gemini: e.target.value }))}
+                          />
                         </div>
-                        <div className="flex-grow">
-                          <p className="font-bold text-sm">{smtp.senderName} <span className="text-xs text-gray-500">({smtp.user})</span></p>
-                          <p className="text-xs text-gray-500">Host: {smtp.host}:{smtp.port} | Daily Limit: {smtp.dailyLimit}</p>
+                        <div>
+                          <label className="block text-xs font-medium text-black/60 mb-1.5 uppercase tracking-wider">Yelp API Key (Yelp Search)</label>
+                          <input 
+                            type="password"
+                            placeholder="Enter your Yelp API Key"
+                            className="w-full px-4 py-2.5 bg-[#F1F3F5] border-none rounded-xl text-sm focus:ring-2 focus:ring-black/5 transition-all"
+                            value={tempApiKeys.yelp}
+                            onChange={e => setTempApiKeys(k => ({ ...k, yelp: e.target.value }))}
+                          />
                         </div>
-                        <button onClick={() => handleDeleteSmtp(smtp.id)} className="p-2 text-red-500 hover:bg-red-100 rounded-lg">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
                       </div>
-                    ))}
-                     {smtps.length === 0 && (
-                      <p className="text-center text-xs text-gray-400 py-4">No SMTP accounts added.</p>
-                    )}
-                  </div>
-                  <div className="p-4 border border-dashed rounded-xl space-y-4">
-                    <h4 className="font-semibold text-sm">Add New SMTP Account</h4>
-                    <div className="grid grid-cols-2 gap-4">
-                       <input 
-                        type="text"
-                        placeholder="Sender Name (e.g. Alex)"
-                        className="w-full px-4 py-2 bg-[#F1F3F5] border-none rounded-xl text-sm"
-                        value={newSmtp.senderName}
-                        onChange={e => setNewSmtp(s => ({ ...s, senderName: e.target.value }))}
-                      />
-                       <input 
-                        type="email"
-                        placeholder="SMTP User (your email)"
-                        className="w-full px-4 py-2 bg-[#F1F3F5] border-none rounded-xl text-sm"
-                        value={newSmtp.user}
-                        onChange={e => setNewSmtp(s => ({ ...s, user: e.target.value }))}
-                      />
+                      <button 
+                        onClick={handleSaveApiKeys}
+                        className="w-full py-2.5 bg-black text-white rounded-xl text-sm font-bold hover:bg-black/80 transition-all flex items-center justify-center gap-2"
+                      >
+                        <CheckCircle2 className="w-4 h-4" />
+                        Save API Keys
+                      </button>
                     </div>
-                    <div className="grid grid-cols-3 gap-4">
-                      <input 
-                        type="text"
-                        placeholder="SMTP Host"
-                        className="w-full px-4 py-2 bg-[#F1F3F5] border-none rounded-xl text-sm"
-                        value={newSmtp.host}
-                        onChange={e => setNewSmtp(s => ({ ...s, host: e.target.value }))}
-                      />
-                      <input 
-                        type="number"
-                        placeholder="Port"
-                        className="w-full px-4 py-2 bg-[#F1F3F5] border-none rounded-xl text-sm"
-                        value={newSmtp.port}
-                        onChange={e => setNewSmtp(s => ({ ...s, port: parseInt(e.target.value) || 0 }))}
-                      />
-                       <input 
-                        type="number"
-                        placeholder="Daily Limit"
-                        className="w-full px-4 py-2 bg-[#F1F3F5] border-none rounded-xl text-sm"
-                        value={newSmtp.dailyLimit}
-                        onChange={e => setNewSmtp(s => ({ ...s, dailyLimit: parseInt(e.target.value) || 0 }))}
-                      />
+                    <div className="bg-blue-50 p-4 rounded-xl">
+                      <p className="text-[10px] text-blue-700 font-bold uppercase tracking-widest mb-1">Security Note</p>
+                      <p className="text-xs text-blue-600 leading-relaxed">Your API keys are stored locally in your browser. They are never sent to our servers except for search requests.</p>
                     </div>
-                     <input 
-                        type="password"
-                        placeholder="SMTP Password (or App Password)"
-                        className="w-full px-4 py-2 bg-[#F1F3F5] border-none rounded-xl text-sm"
-                        value={newSmtp.pass}
-                        onChange={e => setNewSmtp(s => ({ ...s, pass: e.target.value }))}
-                      />
-                    <button onClick={handleAddSmtp} className="w-full py-2 bg-black text-white rounded-lg text-sm font-bold flex items-center justify-center gap-2">
-                      <PlusCircle className="w-4 h-4" />
-                      Add Account
-                    </button>
                   </div>
-                </div>
+                ) : (
+                  <div className="space-y-6">
+                    <div className="space-y-4">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-black/40">Active SMTP Accounts</h3>
+                      <div className="space-y-2">
+                        {smtps.map(smtp => (
+                          <div key={smtp.id} className="flex items-center gap-4 p-4 bg-[#F1F3F5]/50 border border-black/5 rounded-2xl group">
+                            <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-sm">
+                              <Mail className="w-5 h-5 text-black/40" />
+                            </div>
+                            <div className="flex-grow">
+                              <p className="font-bold text-sm">{smtp.senderName} <span className="text-xs font-medium text-black/40">({smtp.user})</span></p>
+                              <p className="text-[10px] font-bold text-black/30 uppercase tracking-widest mt-0.5">Host: {smtp.host}:{smtp.port} | Limit: {smtp.dailyLimit}</p>
+                            </div>
+                            <button 
+                              onClick={() => handleDeleteSmtp(smtp.id)} 
+                              className="p-2 text-red-500 hover:bg-red-50 rounded-xl transition-colors opacity-0 group-hover:opacity-100"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ))}
+                        {smtps.length === 0 && (
+                          <div className="text-center py-12 bg-[#F1F3F5]/30 rounded-2xl border border-dashed border-black/10">
+                            <Mail className="w-8 h-8 text-black/10 mx-auto mb-3" />
+                            <p className="text-sm font-semibold text-black/40">No SMTP accounts added.</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="p-6 border border-dashed border-black/10 rounded-2xl space-y-6">
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-black/40">Add New SMTP Account</h4>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-[10px] font-bold text-black/40 mb-1.5 uppercase tracking-wider">Sender Name</label>
+                          <input 
+                            type="text"
+                            placeholder="e.g. Alex"
+                            className="w-full px-4 py-2.5 bg-[#F1F3F5] border-none rounded-xl text-sm focus:ring-2 focus:ring-black/5 transition-all"
+                            value={newSmtp.senderName}
+                            onChange={e => setNewSmtp(s => ({ ...s, senderName: e.target.value }))}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-black/40 mb-1.5 uppercase tracking-wider">SMTP User</label>
+                          <input 
+                            type="email"
+                            placeholder="your-email@gmail.com"
+                            className="w-full px-4 py-2.5 bg-[#F1F3F5] border-none rounded-xl text-sm focus:ring-2 focus:ring-black/5 transition-all"
+                            value={newSmtp.user}
+                            onChange={e => setNewSmtp(s => ({ ...s, user: e.target.value }))}
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-4">
+                        <div>
+                          <label className="block text-[10px] font-bold text-black/40 mb-1.5 uppercase tracking-wider">Host</label>
+                          <input 
+                            type="text"
+                            placeholder="smtp.gmail.com"
+                            className="w-full px-4 py-2.5 bg-[#F1F3F5] border-none rounded-xl text-sm focus:ring-2 focus:ring-black/5 transition-all"
+                            value={newSmtp.host}
+                            onChange={e => setNewSmtp(s => ({ ...s, host: e.target.value }))}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-black/40 mb-1.5 uppercase tracking-wider">Port</label>
+                          <input 
+                            type="number"
+                            placeholder="587"
+                            className="w-full px-4 py-2.5 bg-[#F1F3F5] border-none rounded-xl text-sm focus:ring-2 focus:ring-black/5 transition-all"
+                            value={newSmtp.port}
+                            onChange={e => setNewSmtp(s => ({ ...s, port: parseInt(e.target.value) || 0 }))}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-black/40 mb-1.5 uppercase tracking-wider">Daily Limit</label>
+                          <input 
+                            type="number"
+                            placeholder="100"
+                            className="w-full px-4 py-2.5 bg-[#F1F3F5] border-none rounded-xl text-sm focus:ring-2 focus:ring-black/5 transition-all"
+                            value={newSmtp.dailyLimit}
+                            onChange={e => setNewSmtp(s => ({ ...s, dailyLimit: parseInt(e.target.value) || 0 }))}
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-black/40 mb-1.5 uppercase tracking-wider">Password / App Password</label>
+                        <input 
+                          type="password"
+                          placeholder="Enter SMTP password"
+                          className="w-full px-4 py-2.5 bg-[#F1F3F5] border-none rounded-xl text-sm focus:ring-2 focus:ring-black/5 transition-all"
+                          value={newSmtp.pass}
+                          onChange={e => setNewSmtp(s => ({ ...s, pass: e.target.value }))}
+                        />
+                      </div>
+                      <button 
+                        onClick={handleAddSmtp} 
+                        className="w-full py-3 bg-black text-white rounded-xl text-sm font-bold hover:bg-black/80 transition-all flex items-center justify-center gap-2"
+                      >
+                        <PlusCircle className="w-4 h-4" />
+                        Add Account
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </motion.div>
           </motion.div>

@@ -1,0 +1,7 @@
+{
+  "name": "LeadGen Pro: Maps & Yelp",
+  "description": "A powerful lead generation tool that extracts business names, numbers, and emails from Google Maps and Yelp.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}

@@ -152,12 +152,12 @@ export default function App() {
           return;
         }
 
-        const headers: string[] = json[0] as string[];
+        const headers: string[] = (json[0] as any[] || []).map(h => String(h).trim().toUpperCase());
         const requiredHeaders = ['EMAIL', 'NAME', 'SUBJECT', 'BODY'];
-        const missingHeaders = requiredHeaders.filter(h => !headers.map(th => th.toUpperCase()).includes(h));
+        const missingHeaders = requiredHeaders.filter(h => !headers.includes(h));
 
         if (missingHeaders.length > 0) {
-          setCampaignError(`Missing required columns: ${missingHeaders.join(', ')}`);
+          setCampaignError(`Missing required columns: ${missingHeaders.join(', ')} (Found: ${headers.join(', ') || 'none'})`);
           return;
         }
 

@@ -53,7 +53,7 @@ export async function searchGoogleMaps(
             For each business, extract: name, phone, website, rating, and review count.`;
 
             const response = await ai.models.generateContent({
-              model: "gemini-2.5-flash",
+              model: "gemini-2.0-flash",
               contents: searchPrompt,
               config: { tools: [{ googleMaps: {} } as any] },
             });
@@ -62,7 +62,7 @@ export async function searchGoogleMaps(
             if (!text || text.length < 10) return;
             
             const parseResponse = await ai.models.generateContent({
-              model: "gemini-2.5-flash",
+              model: "gemini-2.0-flash",
               contents: `Extract business info into a JSON array of objects (keys: name, phone, website, rating, reviewCount) from: ${text}. Return ONLY valid JSON.`,
               config: {
                 responseMimeType: "application/json",
@@ -105,7 +105,7 @@ export async function searchGoogleMaps(
                 // Background email enrichment
                 try {
                   const emailResponse = await ai.models.generateContent({
-                    model: "gemini-2.5-flash",
+                    model: "gemini-2.0-flash",
                     contents: `Find official contact email for "${newLead.name}" in "${area}". Website: ${newLead.website || "N/A"}.`,
                     config: { tools: [{ googleSearch: {} } as any] },
                   });
@@ -145,7 +145,7 @@ export async function findEmailForLead(lead: Lead, apiKey: string): Promise<stri
   const ai = new GoogleGenAI({ apiKey });
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.0-flash",
       contents: `Find the official contact email for the business "${lead.name}" located in "${lead.location}". Use their website ${lead.website || ""} if provided. Search the web if necessary.`,
       config: {
         tools: [{ googleSearch: {} } as any],

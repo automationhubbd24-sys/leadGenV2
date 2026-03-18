@@ -8,13 +8,9 @@
 }
 
 :80 {
-    handle /api/* {
-        reverse_proxy app:3000
-    }
+    reverse_proxy /api/* app:3000
 
-    handle {
-        root * /srv
-        file_server
-        try_files {path} /index.html
-    }
+    root * /srv
+    file_server
+    try_files {path} /index.html
 }

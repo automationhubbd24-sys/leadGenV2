@@ -155,27 +155,31 @@ async function runCampaign(jobId: string, leads: any[], smtps: any[]) {
       },
     });
 
-    // Process spintax and personalization
-    let subject = spin(lead.SUBJECT || '');
-    let body = spin(lead.BODY || '');
+    // Normalize lead keys to uppercase for easier matching
+    const normalizedLead: any = {};
+    Object.keys(lead).forEach(k => normalizedLead[k.toUpperCase()] = lead[k]);
 
-    Object.keys(lead).forEach(key => {
+    // Process spintax and personalization
+    let subject = spin(normalizedLead.SUBJECT || '');
+    let body = spin(normalizedLead.BODY || '');
+
+    Object.keys(normalizedLead).forEach(key => {
+      const val = String(normalizedLead[key] || '');
       // Replace {{KEY}}
       const regexWithBraces = new RegExp(`{{${key}}}`, 'gi');
-      subject = subject.replace(regexWithBraces, lead[key]);
-      body = body.replace(regexWithBraces, lead[key]);
+      subject = subject.replace(regexWithBraces, val);
+      body = body.replace(regexWithBraces, val);
 
       // Also replace plain KEY if it's a common placeholder like NAME, EMAIL, etc.
-      // This makes it more user-friendly
       const plainRegex = new RegExp(`\\b${key}\\b`, 'g'); 
-      subject = subject.replace(plainRegex, lead[key]);
-      body = body.replace(plainRegex, lead[key]);
+      subject = subject.replace(plainRegex, val);
+      body = body.replace(plainRegex, val);
     });
 
     try {
       await transporter.sendMail({
         from: `"${smtpConfig.senderName}" <${smtpConfig.user}>`,
-        to: lead.EMAIL,
+        to: normalizedLead.EMAIL,
         subject: subject,
         html: body,
       });

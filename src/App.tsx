@@ -121,18 +121,21 @@ export default function App() {
   }, 'apiKeys');
 
   const [tempApiKeys, setTempApiKeys] = useState({ gemini: '', yelp: '' });
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saved'>('idle');
 
   // Sync temp keys when modal opens
   useEffect(() => {
     if (showSettings) {
       setTempApiKeys(apiKeys);
+      setSaveStatus('idle');
     }
   }, [showSettings]);
 
   const handleSaveApiKeys = () => {
     setApiKeys(tempApiKeys);
     setError(null);
-    // Add a small feedback or just close
+    setSaveStatus('saved');
+    setTimeout(() => setSaveStatus('idle'), 3000);
   };
 
   const handleAddSmtp = () => {
@@ -692,7 +695,6 @@ export default function App() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
-            onClick={() => setShowSettings(false)}
           >
             <motion.div
               initial={{ scale: 0.95, y: 20 }}
@@ -754,10 +756,22 @@ export default function App() {
                       </div>
                       <button 
                         onClick={handleSaveApiKeys}
-                        className="w-full py-2.5 bg-black text-white rounded-xl text-sm font-bold hover:bg-black/80 transition-all flex items-center justify-center gap-2"
+                        className={cn(
+                          "w-full py-2.5 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2",
+                          saveStatus === 'saved' ? "bg-green-500 text-white hover:bg-green-600" : "bg-black text-white hover:bg-black/80"
+                        )}
                       >
-                        <CheckCircle2 className="w-4 h-4" />
-                        Save API Keys
+                        {saveStatus === 'saved' ? (
+                          <>
+                            <CheckCircle2 className="w-4 h-4" />
+                            API Keys Saved!
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle2 className="w-4 h-4" />
+                            Save API Keys
+                          </>
+                        )}
                       </button>
                     </div>
                     <div className="bg-blue-50 p-4 rounded-xl">

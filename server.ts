@@ -179,17 +179,20 @@ async function runCampaign(jobId: string, leads: any[], smtps: any[]) {
         subject = subject.replace(regexWithBraces, val);
         body = body.replace(regexWithBraces, val);
         const plainRegex = new RegExp(`\\b${key}\\b`, 'g'); 
-        subject = subject.replace(plainRegex, val);
-        body = body.replace(plainRegex, val);
-      });
+      subject = subject.replace(plainRegex, val);
+      body = body.replace(plainRegex, val);
+    });
 
-      try {
-        await transporter.sendMail({
-          from: `"${smtpConfig.senderName}" <${smtpConfig.user}>`,
-          to: normalizedLead.EMAIL,
-          subject: subject,
-          html: body,
-        });
+    // Convert newlines to <br> tags for HTML email
+    const htmlBody = body.replace(/\n/g, '<br>');
+
+    try {
+      await transporter.sendMail({
+        from: `"${smtpConfig.senderName}" <${smtpConfig.user}>`,
+        to: normalizedLead.EMAIL,
+        subject: subject,
+        html: htmlBody,
+      });
 
         job.sent++;
         job.results.push({ 

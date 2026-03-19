@@ -82,7 +82,7 @@ export default function App() {
 
   // SMTP States
   const [smtps, setSmtps] = useStickyState<any[]>([], 'smtps');
-  const [newSmtp, setNewSmtp] = useState({ host: 'smtp.gmail.com', port: 587, user: '', pass: '', senderName: '', dailyLimit: 100 });
+  const [newSmtp, setNewSmtp] = useState({ host: 'smtp.gmail.com', port: 465, user: '', pass: '', senderName: '', dailyLimit: 100 });
 
   // Campaign States
   const [campaignFile, setCampaignFile] = useState<File | null>(null);
@@ -136,9 +136,14 @@ export default function App() {
   };
 
   const handleAddSmtp = () => {
-    if (newSmtp.user && newSmtp.pass && newSmtp.host && newSmtp.senderName) {
-      setSmtps([...smtps, { ...newSmtp, id: Date.now() }]);
-      setNewSmtp({ host: 'smtp.gmail.com', port: 587, user: '', pass: '', senderName: '', dailyLimit: 100 });
+    if (newSmtp.user && newSmtp.pass && newSmtp.senderName) {
+      setSmtps([...smtps, { 
+        ...newSmtp, 
+        host: 'smtp.gmail.com', 
+        port: 465, 
+        id: Date.now() 
+      }]);
+      setNewSmtp({ host: 'smtp.gmail.com', port: 465, user: '', pass: '', senderName: '', dailyLimit: 100 });
     }
   };
 
@@ -355,6 +360,11 @@ export default function App() {
     XLSX.writeFile(workbook, `leads_${params.query}_${params.city}.xlsx`);
   };
 
+  const handleOpenSettings = () => {
+    setSettingsTab(activeTab === 'search' ? 'api' : 'smtp');
+    setShowSettings(true);
+  };
+
   return (
     <div className="min-h-screen bg-[#F8F9FA] text-[#1A1A1A] font-sans">
       {/* Header */}
@@ -390,7 +400,7 @@ export default function App() {
           </div>
           <div className="flex items-center gap-4">
             <button 
-              onClick={() => setShowSettings(true)}
+              onClick={handleOpenSettings}
               className="p-2 hover:bg-black/5 rounded-lg transition-colors"
               title="Settings"
             >
@@ -787,8 +797,8 @@ export default function App() {
                     </div>
 
                     <div className="p-6 border border-dashed border-black/10 rounded-2xl space-y-6">
-                      <h4 className="text-xs font-bold uppercase tracking-wider text-black/40">Add New SMTP Account</h4>
-                      <div className="grid grid-cols-2 gap-4">
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-black/40">Add New Account</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                           <label className="block text-[10px] font-bold text-black/40 mb-1.5 uppercase tracking-wider">Sender Name</label>
                           <input 
@@ -800,7 +810,7 @@ export default function App() {
                           />
                         </div>
                         <div>
-                          <label className="block text-[10px] font-bold text-black/40 mb-1.5 uppercase tracking-wider">SMTP User</label>
+                          <label className="block text-[10px] font-bold text-black/40 mb-1.5 uppercase tracking-wider">Gmail Address</label>
                           <input 
                             type="email"
                             placeholder="your-email@gmail.com"
@@ -810,25 +820,15 @@ export default function App() {
                           />
                         </div>
                       </div>
-                      <div className="grid grid-cols-3 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                          <label className="block text-[10px] font-bold text-black/40 mb-1.5 uppercase tracking-wider">Host</label>
+                          <label className="block text-[10px] font-bold text-black/40 mb-1.5 uppercase tracking-wider">App Password</label>
                           <input 
-                            type="text"
-                            placeholder="smtp.gmail.com"
+                            type="password"
+                            placeholder="Enter 16-character App Password"
                             className="w-full px-4 py-2.5 bg-[#F1F3F5] border-none rounded-xl text-sm focus:ring-2 focus:ring-black/5 transition-all"
-                            value={newSmtp.host}
-                            onChange={e => setNewSmtp(s => ({ ...s, host: e.target.value }))}
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-[10px] font-bold text-black/40 mb-1.5 uppercase tracking-wider">Port</label>
-                          <input 
-                            type="number"
-                            placeholder="587"
-                            className="w-full px-4 py-2.5 bg-[#F1F3F5] border-none rounded-xl text-sm focus:ring-2 focus:ring-black/5 transition-all"
-                            value={newSmtp.port}
-                            onChange={e => setNewSmtp(s => ({ ...s, port: parseInt(e.target.value) || 0 }))}
+                            value={newSmtp.pass}
+                            onChange={e => setNewSmtp(s => ({ ...s, pass: e.target.value }))}
                           />
                         </div>
                         <div>
@@ -842,22 +842,12 @@ export default function App() {
                           />
                         </div>
                       </div>
-                      <div>
-                        <label className="block text-[10px] font-bold text-black/40 mb-1.5 uppercase tracking-wider">Password / App Password</label>
-                        <input 
-                          type="password"
-                          placeholder="Enter SMTP password"
-                          className="w-full px-4 py-2.5 bg-[#F1F3F5] border-none rounded-xl text-sm focus:ring-2 focus:ring-black/5 transition-all"
-                          value={newSmtp.pass}
-                          onChange={e => setNewSmtp(s => ({ ...s, pass: e.target.value }))}
-                        />
-                      </div>
                       <button 
                         onClick={handleAddSmtp} 
                         className="w-full py-3 bg-black text-white rounded-xl text-sm font-bold hover:bg-black/80 transition-all flex items-center justify-center gap-2"
                       >
                         <PlusCircle className="w-4 h-4" />
-                        Add Account
+                        Add Gmail Account
                       </button>
                     </div>
                   </div>

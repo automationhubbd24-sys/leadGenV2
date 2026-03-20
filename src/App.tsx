@@ -286,6 +286,11 @@ export default function App() {
         setTimeout(() => {
           if (leads.length === 0) setError('No leads found. Try a different query or location.');
         }, 2000);
+      } else {
+        // Automatically start enriching emails for the found leads
+        setSearchProgress('ইমেইল খোঁজা হচ্ছে...');
+        const allLeads = [...leads, ...results]; // This is a bit tricky due to state updates
+        // Better: trigger a function that uses the latest leads state
       }
     } catch (err) {
       setError('An error occurred while searching. Please check your API keys.');
@@ -293,6 +298,10 @@ export default function App() {
     } finally {
       setIsSearching(false);
       setSearchProgress('');
+      // Use useEffect or a timeout to trigger enrichment after state has settled
+      setTimeout(() => {
+        enrichAll();
+      }, 500);
     }
   };
 
@@ -311,11 +320,15 @@ export default function App() {
     }
   };
 
+  const [isEnrichingAll, setIsEnrichingAll] = useState(false);
   const enrichAll = async () => {
+    if (isEnrichingAll) return;
+    setIsEnrichingAll(true);
     const leadsToEnrich = leads.filter(l => !l.email);
     for (const lead of leadsToEnrich) {
       await enrichLead(lead.id);
     }
+    setIsEnrichingAll(false);
   };
 
   const exportCSV = () => {
@@ -558,10 +571,20 @@ export default function App() {
                     <div className="h-4 w-px bg-black/10" />
                     <button 
                       onClick={enrichAll}
-                      className="text-xs font-semibold text-black/60 hover:text-black transition-colors flex items-center gap-1.5"
+                      disabled={isEnrichingAll}
+                      className="text-xs font-semibold text-black/60 hover:text-black transition-colors flex items-center gap-1.5 disabled:opacity-50"
                     >
-                      <Plus className="w-3.5 h-3.5" />
-                      Enrich All Emails
+                      {isEnrichingAll ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          Finding Emails...
+                        </>
+                      ) : (
+                        <>
+                          <Plus className="w-3.5 h-3.5" />
+                          Enrich All Emails
+                        </>
+                      )}
                     </button>
                   </div>
                 </div>

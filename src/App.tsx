@@ -992,6 +992,23 @@ function BulkEmailUI({ job, isCampaignRunning, campaignFile, campaignPreview, ca
               <div className="text-xs text-center text-gray-500">
                 Status: <span className="font-bold uppercase">{job.status}</span>
               </div>
+
+              {job.results && job.results.filter((r: any) => r.status === 'failed').length > 0 && (
+                <div className="mt-4 space-y-2">
+                  <h3 className="text-xs font-bold uppercase text-red-500 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" />
+                    Failed Leads Details
+                  </h3>
+                  <div className="max-h-40 overflow-y-auto border border-red-100 rounded-lg bg-red-50/30 p-2 space-y-1">
+                    {job.results.filter((r: any) => r.status === 'failed').map((res: any, i: number) => (
+                      <div key={i} className="text-[10px] flex flex-col border-b border-red-100 pb-1 last:border-0">
+                        <span className="font-bold text-red-700">{res.email || res.name || 'Unknown Lead'}</span>
+                        <span className="text-red-500/70 truncate">{res.error}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <div className="text-center py-10 flex flex-col items-center">

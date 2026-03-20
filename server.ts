@@ -132,8 +132,27 @@ async function runCampaign(jobId: string, leads: any[], smtps: any[]) {
   const activeSmtps = smtps.map(s => ({ ...s, isInvalid: false }));
 
   for (const lead of leads) {
+    // Normalize lead keys
+    const normalizedLead: any = {};
+    Object.keys(lead).forEach(k => normalizedLead[k.toUpperCase().trim()] = lead[k]);
+
+    const targetEmail = normalizedLead.EMAIL || normalizedLead.E_MAIL || normalizedLead.MAIL || '';
+
+    if (!targetEmail) {
+      console.warn(`Skipping lead: No EMAIL column found for ${JSON.stringify(lead)}`);
+      job.failed++;
+      job.results.push({ 
+        name: normalizedLead.NAME || 'Unknown', 
+        status: 'failed', 
+        error: 'No email address found in the spreadsheet.', 
+        timestamp: Date.now() 
+      });
+      continue;
+    }
+
     let emailSent = false;
     let attempts = 0;
+    let lastError = '';
 
     // Try to send the email using available SMTPs in rotation
     while (!emailSent && attempts < activeSmtps.length) {
@@ -161,14 +180,10 @@ async function runCampaign(jobId: string, leads: any[], smtps: any[]) {
           user: smtpConfig.user,
           pass: smtpConfig.pass,
         },
-        // Add timeout to quickly skip unresponsive servers
-        connectionTimeout: 10000, 
-        greetingTimeout: 5000,
+        connectionTimeout: 15000, 
+        greetingTimeout: 10000,
+        socketTimeout: 20000,
       });
-
-      // Normalize lead keys
-      const normalizedLead: any = {};
-      Object.keys(lead).forEach(k => normalizedLead[k.toUpperCase()] = lead[k]);
 
       let subject = spin(normalizedLead.SUBJECT || '');
       let body = spin(normalizedLead.BODY || '');
@@ -179,44 +194,42 @@ async function runCampaign(jobId: string, leads: any[], smtps: any[]) {
         subject = subject.replace(regexWithBraces, val);
         body = body.replace(regexWithBraces, val);
         const plainRegex = new RegExp(`\\b${key}\\b`, 'g'); 
-      subject = subject.replace(plainRegex, val);
-      body = body.replace(plainRegex, val);
-    });
-
-    // Convert newlines to <br> tags for HTML email
-    const htmlBody = body.replace(/\n/g, '<br>');
-
-    try {
-      await transporter.sendMail({
-        from: `"${smtpConfig.senderName}" <${smtpConfig.user}>`,
-        to: normalizedLead.EMAIL,
-        subject: subject,
-        html: htmlBody,
+        subject = subject.replace(plainRegex, val);
+        body = body.replace(plainRegex, val);
       });
+
+      const htmlBody = body.replace(/\n/g, '<br>');
+
+      try {
+        await transporter.sendMail({
+          from: `"${smtpConfig.senderName}" <${smtpConfig.user}>`,
+          to: targetEmail,
+          subject: subject,
+          html: htmlBody,
+        });
 
         job.sent++;
         job.results.push({ 
-          email: normalizedLead.EMAIL, 
+          email: targetEmail, 
           status: 'sent', 
           smtpUser: smtpConfig.user, 
           timestamp: Date.now() 
         });
         emailSent = true;
-        // Move to next SMTP for the NEXT lead
+        console.log(`Email successfully sent to ${targetEmail} via ${smtpConfig.user}`);
         currentSmtpIndex = (currentSmtpIndex + 1) % activeSmtps.length;
       } catch (error: any) {
-        console.error(`SMTP Error (${smtpConfig.user}):`, error.message);
+        lastError = error.message;
+        console.error(`SMTP Error (${smtpConfig.user} -> ${targetEmail}):`, error.message);
         
-        // Check if error is authentication or connection related (invalid SMTP)
         const isAuthError = error.code === 'EAUTH' || error.responseCode === 535;
-        const isConnError = error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT';
+        const isConnError = error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT' || error.code === 'ESOCKET';
 
         if (isAuthError || isConnError) {
           smtpConfig.isInvalid = true;
           console.log(`Marking SMTP ${smtpConfig.user} as invalid and rotating...`);
         }
 
-        // Rotate to next SMTP and try again for THIS lead
         currentSmtpIndex = (currentSmtpIndex + 1) % activeSmtps.length;
         attempts++;
       }
@@ -225,9 +238,9 @@ async function runCampaign(jobId: string, leads: any[], smtps: any[]) {
     if (!emailSent) {
       job.failed++;
       job.results.push({ 
-        email: lead.EMAIL, 
+        email: targetEmail, 
         status: 'failed', 
-        error: 'No valid or available SMTP servers found for this lead.', 
+        error: lastError || 'All SMTP servers failed for this lead.', 
         timestamp: Date.now() 
       });
     }

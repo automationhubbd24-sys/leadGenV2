@@ -198,7 +198,16 @@ async function runCampaign(jobId: string, leads: any[], smtps: any[]) {
         body = body.replace(plainRegex, val);
       });
 
-      const htmlBody = body.replace(/\n/g, '<br>');
+      // Convert newlines to <br> tags and support simple **bold** text
+      const formattedBody = body
+        .replace(/\n/g, '<br>')
+        .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+
+      const htmlBody = `
+        <div style="font-family: sans-serif; line-height: 1.6; color: #333; white-space: normal;">
+          ${formattedBody}
+        </div>
+      `;
 
       try {
         await transporter.sendMail({

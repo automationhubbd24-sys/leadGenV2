@@ -53,7 +53,7 @@ export async function searchGoogleMaps(
             For each business, extract: name, phone, website, rating, and review count.`;
 
             const response = await ai.models.generateContent({
-              model: "gemini-2.0-flash",
+              model: "gemini-2.5-flash",
               contents: searchPrompt,
               config: { tools: [{ googleMaps: {} } as any] },
             });
@@ -62,7 +62,7 @@ export async function searchGoogleMaps(
             if (!text || text.length < 10) return;
             
             const parseResponse = await ai.models.generateContent({
-              model: "gemini-2.0-flash",
+              model: "gemini-2.5-flash",
               contents: `Extract business info into a JSON array of objects (keys: name, phone, website, rating, reviewCount) from: ${text}. Return ONLY valid JSON.`,
               config: {
                 responseMimeType: "application/json",
@@ -105,8 +105,16 @@ export async function searchGoogleMaps(
                 // Background email enrichment
                 try {
                   const emailResponse = await ai.models.generateContent({
-                    model: "gemini-2.0-flash",
-                    contents: `Find official contact email for "${newLead.name}" in "${area}". Website: ${newLead.website || "N/A"}.`,
+                    model: "gemini-2.5-flash",
+                    contents: `You are an expert lead researcher. Find the MOST ACCURATE official contact email for the business:
+                    - Name: "${newLead.name}"
+                    - Location: "${area}, ${country}"
+                    - Website: ${newLead.website || "N/A"}
+                    
+                    Instructions:
+                    1. Search Google, their official website, Facebook page, LinkedIn, and Yelp/YellowPages.
+                    2. Look for email patterns like info@, contact@, sales@, or owner's email.
+                    3. Return ONLY the email address if found, otherwise return "NOT_FOUND".`,
                     config: { tools: [{ googleSearch: {} } as any] },
                   });
                   const emailMatch = emailResponse.text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
@@ -145,8 +153,16 @@ export async function findEmailForLead(lead: Lead, apiKey: string): Promise<stri
   const ai = new GoogleGenAI({ apiKey });
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.0-flash",
-      contents: `Find the official contact email for the business "${lead.name}" located in "${lead.location}". Use their website ${lead.website || ""} if provided. Search the web if necessary.`,
+      model: "gemini-2.5-flash",
+      contents: `You are an expert lead researcher. Find the MOST ACCURATE official contact email for the business:
+      - Name: "${lead.name}"
+      - Location: "${lead.location}"
+      - Website: ${lead.website || "N/A"}
+      
+      Instructions:
+      1. Search Google, their official website, Facebook page, LinkedIn, and Yelp/YellowPages.
+      2. Look for email patterns like info@, contact@, sales@, or owner's email.
+      3. Return ONLY the email address if found, otherwise return "NOT_FOUND".`,
       config: {
         tools: [{ googleSearch: {} } as any],
       },

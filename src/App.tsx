@@ -917,18 +917,10 @@ export default function App() {
                             value={newConfig.provider}
                             onChange={e => {
                               const p = e.target.value as LLMProvider;
-                              let m = 'gemini-2.5-flash';
-                              if (p === 'groq') m = 'llama-3.3-70b-versatile';
-                              if (p === 'openrouter') m = 'google/gemini-2.5-flash:free';
-                              setNewConfig(c => ({ ...c, provider: p, model: m }));
+                              setNewConfig(c => ({ ...c, provider: p, model: 'gemini-2.0-flash' }));
                             }}
                           >
                             <option value="google">Google AI Studio (Gemini)</option>
-                            <option value="groq">Groq</option>
-                            <option value="openrouter">OpenRouter</option>
-                            <option value="mistral">Mistral AI</option>
-                            <option value="openai">OpenAI</option>
-                            <option value="custom">Custom/Yelp</option>
                           </select>
                         </div>
                       </div>

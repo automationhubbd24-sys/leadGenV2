@@ -87,8 +87,13 @@ export default function App() {
     { id: 'default-yelp', provider: 'custom', label: 'Yelp API', key: '', model: '', isActive: true }
   ], 'apiConfigs');
 
-  const [newConfig, setNewConfig] = useState<Partial<APIKeyConfig>>({ provider: 'google', model: 'gemini-2.5-flash', isActive: true });
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'saved'>('idle');
+  const [newConfig, setNewConfig] = useState<any>({ 
+    provider: 'google', 
+    model: 'gemini-2.0-flash', 
+    isActive: true,
+    label: '',
+    keys: '' 
+  });
 
   const [isEnrichingAll, setIsEnrichingAll] = useState(false);
   const [lpm, setLpm] = useState(0); // Leads Per Minute
@@ -146,12 +151,28 @@ export default function App() {
   }, [job]);
 
   const handleAddConfig = () => {
-    if (newConfig.key && newConfig.label) {
-      setApiConfigs([...apiConfigs, { 
-        ...newConfig as APIKeyConfig, 
-        id: Date.now().toString(),
-      }]);
-      setNewConfig({ provider: 'google', model: 'gemini-2.5-flash', isActive: true });
+    if (newConfig.keys && newConfig.label) {
+      const keyList = newConfig.keys.split(/[\n,]+/).map((k: string) => k.trim()).filter((k: string) => k.length > 0);
+      
+      const newConfigs = keyList.map((k, index) => ({
+        id: `${Date.now()}-${index}`,
+        provider: newConfig.provider,
+        model: newConfig.model,
+        label: keyList.length > 1 ? `${newConfig.label} ${index + 1}` : newConfig.label,
+        key: k,
+        isActive: true,
+        baseUrl: newConfig.baseUrl
+      }));
+
+      setApiConfigs([...apiConfigs, ...newConfigs]);
+      setNewConfig({ 
+        provider: newConfig.provider, 
+        model: newConfig.model, 
+        isActive: true,
+        label: '',
+        keys: '',
+        baseUrl: newConfig.baseUrl
+      });
     }
   };
 
@@ -264,17 +285,17 @@ export default function App() {
       return;
     }
 
-    const geminiConfig = apiConfigs.find(c => c.provider === 'google' && c.isActive && c.key);
-    const yelpConfig = apiConfigs.find(c => c.label.toLowerCase().includes('yelp') && c.isActive && c.key);
+    const geminiConfigs = apiConfigs.filter(c => c.provider === 'google' && c.isActive && c.key);
+    const yelpConfigs = apiConfigs.filter(c => c.label.toLowerCase().includes('yelp') && c.isActive && c.key);
 
-    if (sources.google && !geminiConfig) {
-      setError('Please provide and enable a Gemini API Key in settings to search Google Maps.');
+    if (sources.google && geminiConfigs.length === 0) {
+      setError('Google Maps এ সার্চ করার জন্য অন্তত একটি Gemini API Key প্রয়োজন (Settings এ গিয়ে অ্যাড করুন)। ইমেইল খোঁজার জন্য আপনি যেকোনো প্রোভাইডার ব্যবহার করতে পারেন।');
       setShowSettings(true);
       return;
     }
 
-    if (sources.yelp && !yelpConfig) {
-      setError('Please provide and enable a Yelp API Key in settings to search Yelp.');
+    if (sources.yelp && yelpConfigs.length === 0) {
+      setError('Yelp এ সার্চ করার জন্য অন্তত একটি Yelp API Key প্রয়োজন।');
       setShowSettings(true);
       return;
     }
@@ -287,7 +308,7 @@ export default function App() {
       const results: Lead[] = [];
       
       const searchPromises = [];
-      if (sources.google && geminiConfig) {
+      if (sources.google && geminiConfigs.length > 0) {
         searchPromises.push(searchGoogleMaps(
           params, 
           apiConfigs, 
@@ -302,13 +323,14 @@ export default function App() {
           }
         ));
       }
-      if (sources.yelp && yelpConfig) searchPromises.push(searchYelp(params, apiConfigs));
+      if (sources.yelp && yelpConfigs.length > 0) searchPromises.push(searchYelp(params, apiConfigs));
 
       const responses = await Promise.all(searchPromises);
-      if (sources.yelp && responses[responses.length - 1]) {
-        const yelpResults = responses[responses.length - 1];
+      const yelpResponse = sources.yelp && yelpConfigs.length > 0 ? responses[responses.length - 1] : null;
+      
+      if (yelpResponse) {
         setLeads(prev => {
-          const uniqueLeads = yelpResults.filter(nl => !prev.some(pl => pl.name === nl.name));
+          const uniqueLeads = yelpResponse.filter((nl: Lead) => !prev.some(pl => pl.name === nl.name));
           return [...prev, ...uniqueLeads];
         });
       }
@@ -910,17 +932,19 @@ export default function App() {
                           </select>
                         </div>
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 gap-4">
                         <div>
-                          <label className="block text-[10px] font-bold text-black/40 mb-1.5 uppercase tracking-wider">API Key</label>
-                          <input 
-                            type="password"
+                          <label className="block text-[10px] font-bold text-black/40 mb-1.5 uppercase tracking-wider">API Key(s) - One per line or comma separated</label>
+                          <textarea 
                             placeholder="sk-..."
-                            className="w-full px-4 py-2.5 bg-[#F1F3F5] border-none rounded-xl text-sm focus:ring-2 focus:ring-black/5 transition-all"
-                            value={newConfig.key || ''}
-                            onChange={e => setNewConfig(c => ({ ...c, key: e.target.value }))}
+                            rows={3}
+                            className="w-full px-4 py-2.5 bg-[#F1F3F5] border-none rounded-xl text-sm focus:ring-2 focus:ring-black/5 transition-all font-mono"
+                            value={newConfig.keys || ''}
+                            onChange={e => setNewConfig(c => ({ ...c, keys: e.target.value }))}
                           />
                         </div>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                           <label className="block text-[10px] font-bold text-black/40 mb-1.5 uppercase tracking-wider">Model ID</label>
                           <input 
@@ -931,19 +955,19 @@ export default function App() {
                             onChange={e => setNewConfig(c => ({ ...c, model: e.target.value }))}
                           />
                         </div>
+                        {newConfig.provider === 'custom' && (
+                          <div>
+                            <label className="block text-[10px] font-bold text-black/40 mb-1.5 uppercase tracking-wider">Base URL (Optional)</label>
+                            <input 
+                              type="text"
+                              placeholder="https://api.yourprovider.com/v1"
+                              className="w-full px-4 py-2.5 bg-[#F1F3F5] border-none rounded-xl text-sm focus:ring-2 focus:ring-black/5 transition-all"
+                              value={newConfig.baseUrl || ''}
+                              onChange={e => setNewConfig(c => ({ ...c, baseUrl: e.target.value }))}
+                            />
+                          </div>
+                        )}
                       </div>
-                      {newConfig.provider === 'custom' && (
-                        <div>
-                          <label className="block text-[10px] font-bold text-black/40 mb-1.5 uppercase tracking-wider">Base URL (Optional)</label>
-                          <input 
-                            type="text"
-                            placeholder="https://api.yourprovider.com/v1"
-                            className="w-full px-4 py-2.5 bg-[#F1F3F5] border-none rounded-xl text-sm focus:ring-2 focus:ring-black/5 transition-all"
-                            value={newConfig.baseUrl || ''}
-                            onChange={e => setNewConfig(c => ({ ...c, baseUrl: e.target.value }))}
-                          />
-                        </div>
-                      )}
                       <button 
                         onClick={handleAddConfig} 
                         className="w-full py-3 bg-black text-white rounded-xl text-sm font-bold hover:bg-black/80 transition-all flex items-center justify-center gap-2"

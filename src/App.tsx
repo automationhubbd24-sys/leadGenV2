@@ -84,7 +84,7 @@ export default function App() {
 
   const [apiConfigs, setApiConfigs] = useStickyState<APIKeyConfig[]>([
     { id: 'default-gemini', provider: 'google', label: 'Default Gemini', key: '', model: 'gemini-2.5-flash', isActive: true },
-    { id: 'default-yelp', provider: 'custom', label: 'Yelp API', key: '', model: '', isActive: true }
+    { id: 'salesman-chatbot', provider: 'custom', label: 'SalesmanChatbot', key: 'salesmanchatbot-82cb350f216933a3838d129b1aea77858ab8141823767f89', model: 'gemini-2.5-flash', isActive: true, baseUrl: 'https://api.salesmanchatbot.online/api/external/v1' }
   ], 'apiConfigs');
 
   const [newConfig, setNewConfig] = useState<any>({ 
@@ -917,10 +917,11 @@ export default function App() {
                             value={newConfig.provider}
                             onChange={e => {
                               const p = e.target.value as LLMProvider;
-                              setNewConfig(c => ({ ...c, provider: p, model: 'gemini-2.0-flash' }));
+                              setNewConfig(c => ({ ...c, provider: p, model: 'gemini-2.5-flash' }));
                             }}
                           >
                             <option value="google">Google AI Studio (Gemini)</option>
+                            <option value="custom">SalesmanChatbot (Custom)</option>
                           </select>
                         </div>
                       </div>

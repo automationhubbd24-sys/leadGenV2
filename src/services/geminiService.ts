@@ -67,13 +67,14 @@ export async function searchGoogleMaps(
         
         const batchPromises = currentKeywords.map(async (keyword) => {
           try {
-            const { ai: searchAi, model: searchModel } = getNextGeminiClient(apiConfigs);
+            const searchAi = getNextGeminiClient(apiConfigs);
             const searchPrompt = `Find EVERY SINGLE business for "${keyword}" in "${area}, ${country}". 
             You MUST use the Google Maps tool. Be extremely exhaustive. 
-            For each business, extract: name, phone, website, rating, and review count.`;
+            For each business, extract: name, phone, website, rating, and review count.
+            CRITICAL: Also find the official contact email for each business. Use the website or your internal knowledge to provide the most accurate email.`;
 
-            const response = await searchAi.models.generateContent({
-              model: searchModel,
+            const response = await searchAi.ai.models.generateContent({
+              model: searchAi.model,
               contents: searchPrompt,
               config: { tools: [{ googleMaps: {} } as any] },
             });
@@ -81,10 +82,10 @@ export async function searchGoogleMaps(
             const text = response.text;
             if (!text || text.length < 10) return;
             
-            const { ai: parseAi, model: parseModel } = getNextGeminiClient(apiConfigs);
-            const parseResponse = await parseAi.models.generateContent({
-              model: parseModel,
-              contents: `Extract business info into a JSON array of objects (keys: name, phone, website, rating, reviewCount) from: ${text}. Return ONLY valid JSON.`,
+            const parseAi = getNextGeminiClient(apiConfigs);
+            const parseResponse = await parseAi.ai.models.generateContent({
+              model: parseAi.model,
+              contents: `Extract business info into a JSON array of objects (keys: name, phone, email, website, rating, reviewCount) from: ${text}. Return ONLY valid JSON. If email is not found, use null.`,
               config: {
                 responseMimeType: "application/json",
                 responseSchema: {
@@ -94,6 +95,7 @@ export async function searchGoogleMaps(
                     properties: {
                       name: { type: Type.STRING },
                       phone: { type: Type.STRING },
+                      email: { type: Type.STRING, nullable: true },
                       website: { type: Type.STRING },
                       rating: { type: Type.NUMBER },
                       reviewCount: { type: Type.NUMBER },
@@ -116,6 +118,7 @@ export async function searchGoogleMaps(
                   id: `gm-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
                   name: item.name,
                   phone: item.phone || "N/A",
+                  email: item.email || undefined,
                   website: item.website,
                   location: area,
                   source: "Google Maps",

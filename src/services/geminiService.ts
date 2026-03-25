@@ -39,7 +39,7 @@ export async function searchGoogleMaps(
       If the country is not an English-speaking one, also include terms in the local language (e.g. for Bangladesh, include Bengali terms).
       Format as a simple comma-separated list.`,
     });
-    onUsageUpdate?.((keywordResponse.response as any).usageMetadata);
+    onUsageUpdate?.(keywordResponse.usageMetadata);
     const keywords = [query, ...keywordResponse.text.split(',').map(k => k.trim())].slice(0, 10);
 
     const { ai: discoveryAi, model: discoveryModel } = getNextGeminiClient(apiConfigs);
@@ -50,7 +50,7 @@ export async function searchGoogleMaps(
       contents: `List every single major and minor neighborhood, commercial hub, and business district in "${locationStr}". 
       I need an exhaustive list for a deep scan. Include at least 40-50 areas if possible. Format as a comma-separated list.`,
     });
-    onUsageUpdate?.((discoveryResponse.response as any).usageMetadata);
+    onUsageUpdate?.(discoveryResponse.usageMetadata);
     const discoveredAreas = discoveryResponse.text.split(',').map(a => a.trim()).filter(a => a.length > 0);
     const areasToSearch = [locationStr, ...discoveredAreas].slice(0, 40);
 
@@ -81,7 +81,7 @@ export async function searchGoogleMaps(
               contents: searchPrompt,
               config: { tools: [{ googleMaps: {} } as any] },
             });
-            onUsageUpdate?.((response.response as any).usageMetadata);
+            onUsageUpdate?.(response.usageMetadata);
 
             const text = response.text;
             if (!text || text.length < 10) return;
@@ -109,7 +109,7 @@ export async function searchGoogleMaps(
                 },
               },
             });
-            onUsageUpdate?.((parseResponse.response as any).usageMetadata);
+            onUsageUpdate?.(parseResponse.usageMetadata);
 
             const leadsData = JSON.parse(parseResponse.text);
             const batchLeads: Lead[] = [];

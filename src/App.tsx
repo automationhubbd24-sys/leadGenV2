@@ -73,7 +73,7 @@ export default function App() {
   });
   const [sources, setSources] = useState({
     google: true,
-    yelp: true
+    yelp: false
   });
   const [leads, setLeads] = useState<Lead[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -307,12 +307,12 @@ export default function App() {
     const yelpConfigs = apiConfigs.filter(c => c.label.toLowerCase().includes('yelp') && c.isActive && c.key);
 
     if (sources.google && searchConfigs.length === 0) {
-      setError('Google Maps এ সার্চ করার জন্য অন্তত একটি Gemini বা SalesmanChatbot API Key প্রয়োজন (Settings এ গিয়ে অ্যাড করুন)।');
+      setError('Google Maps এ সার্চ করার জন্য অন্তত একটি Gemini বা SalesmanChatbot API Key প্রয়োজন।');
       setShowSettings(true);
       return;
     }
 
-    if (sources.yelp && yelpConfigs.length === 0) {
+    if (sources.yelp && yelpConfigs.length === 0 && !sources.google) {
       setError('Yelp এ সার্চ করার জন্য অন্তত একটি Yelp API Key প্রয়োজন।');
       setShowSettings(true);
       return;

@@ -296,9 +296,12 @@ export default function App() {
     }
   };
 
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    console.log('handleSearch called');
+  const handleSearch = async (e?: React.FormEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    console.log('handleSearch triggered');
     if (!params.query || !params.city) {
       console.log('Missing query or city');
       setError('Please enter a business type and city.');
@@ -691,7 +694,11 @@ export default function App() {
                   </div>
 
                   <button 
-                    type="submit"
+                    type="button"
+                    onClick={() => {
+                      console.log('Find Leads button clicked');
+                      handleSearch();
+                    }}
                     disabled={isSearching}
                     className="w-full py-3 bg-black text-white rounded-xl text-sm font-bold hover:bg-black/80 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 mt-6"
                   >

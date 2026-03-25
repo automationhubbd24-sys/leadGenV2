@@ -1247,5 +1247,5 @@ function BulkEmailUI({ job, isCampaignRunning, campaignFile, campaignPreview, ca
         </div>
       </div>
     </div>
-  );
+  )
 }

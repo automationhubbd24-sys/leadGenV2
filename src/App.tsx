@@ -787,61 +787,9 @@ export default function App() {
                   </div>
                 )}
               </div>
-                  </div>
-                ) : settingsTab === 'database' ? (
-                  <div className="space-y-6">
-                    <div className="bg-amber-50 p-6 rounded-2xl border border-amber-100">
-                      <div className="flex items-center gap-3 mb-4">
-                        <AlertCircle className="w-5 h-5 text-amber-600" />
-                        <h3 className="text-sm font-bold text-amber-900 uppercase tracking-wider">Database Management</h3>
-                      </div>
-                      <p className="text-xs text-amber-700 leading-relaxed mb-6">
-                        Your leads are stored locally in your browser's IndexedDB. This ensures that your data is safe even if you close the tab or lose internet connection.
-                      </p>
-                      
-                      <div className="flex flex-col gap-3">
-                        <button 
-                          onClick={async () => {
-                            if (confirm('Are you sure you want to clear ALL leads from the local database? This cannot be undone.')) {
-                              await clearLeads();
-                              setLeads([]);
-                            }
-                          }}
-                          className="flex items-center justify-center gap-2 py-3 bg-red-50 text-red-600 rounded-xl text-xs font-bold hover:bg-red-100 transition-all"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                          CLEAR ALL DATA
-                        </button>
-                        <button 
-                          onClick={() => {
-                            const data = JSON.stringify(leads, null, 2);
-                            const blob = new Blob([data], { type: 'application/json' });
-                            const url = URL.createObjectURL(blob);
-                            const link = document.createElement('a');
-                            link.href = url;
-                            link.download = `leadgen_backup_${new Date().toISOString().split('T')[0]}.json`;
-                            link.click();
-                          }}
-                          className="flex items-center justify-center gap-2 py-3 bg-black text-white rounded-xl text-xs font-bold hover:bg-black/80 transition-all"
-                        >
-                          <Download className="w-4 h-4" />
-                          DOWNLOAD BACKUP (JSON)
-                        </button>
-                      </div>
-                    </div>
-                    
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="p-4 bg-[#F1F3F5] rounded-2xl text-center">
-                        <p className="text-[10px] font-bold text-black/40 uppercase tracking-widest mb-1">Total Leads</p>
-                        <p className="text-2xl font-black">{leads.length}</p>
-                      </div>
-                      <div className="p-4 bg-[#F1F3F5] rounded-2xl text-center">
-                        <p className="text-[10px] font-bold text-black/40 uppercase tracking-widest mb-1">Storage Type</p>
-                        <p className="text-sm font-black uppercase">IndexedDB</p>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
+            </div>
+          </div>
+        ) : (
           <BulkEmailUI
             job={job}
             isCampaignRunning={isCampaignRunning}

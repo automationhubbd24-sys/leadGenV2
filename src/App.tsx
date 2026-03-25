@@ -93,7 +93,8 @@ export default function App() {
     provider: 'google', 
     model: 'gemini-2.5-flash', 
     isActive: true,
-    keys: '' 
+    keys: '',
+    baseUrl: 'https://api.salesmanchatbot.online/api/external/v1'
   });
 
   const [isEnrichingAll, setIsEnrichingAll] = useState(false);

@@ -112,9 +112,13 @@ async function callOpenAICompatible(
       case 'openrouter': baseUrl = 'https://openrouter.ai/api/v1'; break;
       case 'mistral': baseUrl = 'https://api.mistral.ai/v1'; break;
       case 'openai': baseUrl = 'https://api.openai.com/v1'; break;
+      case 'custom': baseUrl = 'https://api.salesmanchatbot.online/api/external/v1'; break;
       default: throw new Error(`Unknown provider: ${config.provider}`);
     }
   }
+
+  // Remove trailing slash from baseUrl if present
+  const cleanBaseUrl = baseUrl.replace(/\/+$/, "");
 
   const body: any = {
     model: config.model,
@@ -125,7 +129,7 @@ async function callOpenAICompatible(
     response_format: responseMimeType === 'application/json' ? { type: 'json_object' } : undefined
   };
 
-  const response = await fetch(`${baseUrl}/chat/completions`, {
+  const response = await fetch(`${cleanBaseUrl}/chat/completions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

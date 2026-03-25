@@ -298,7 +298,9 @@ export default function App() {
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.log('handleSearch called');
     if (!params.query || !params.city) {
+      console.log('Missing query or city');
       setError('Please enter a business type and city.');
       return;
     }
@@ -306,18 +308,23 @@ export default function App() {
     const searchConfigs = apiConfigs.filter(c => (c.provider === 'google' || c.provider === 'custom') && c.isActive && c.key);
     const yelpConfigs = apiConfigs.filter(c => c.label.toLowerCase().includes('yelp') && c.isActive && c.key);
 
+    console.log('Search Configs:', searchConfigs.length);
+
     if (sources.google && searchConfigs.length === 0) {
+      console.log('No search configs for Google');
       setError('Google Maps এ সার্চ করার জন্য অন্তত একটি Gemini বা SalesmanChatbot API Key প্রয়োজন।');
       setShowSettings(true);
       return;
     }
 
     if (sources.yelp && yelpConfigs.length === 0 && !sources.google) {
+      console.log('No search configs for Yelp');
       setError('Yelp এ সার্চ করার জন্য অন্তত একটি Yelp API Key প্রয়োজন।');
       setShowSettings(true);
       return;
     }
 
+    console.log('Starting search process...');
     setIsSearching(true);
     setSearchProgress('সার্চ শুরু হচ্ছে...');
     setError(null);
@@ -327,39 +334,49 @@ export default function App() {
       
       const searchPromises = [];
       if (sources.google && searchConfigs.length > 0) {
+        console.log('Adding Google Maps search promise');
         searchPromises.push(searchGoogleMaps(
           params, 
           apiConfigs, 
           (newLeads) => {
+            console.log('New leads from Google Maps:', newLeads.length);
             setLeads(prev => {
               const uniqueLeads = newLeads.filter(nl => !prev.some(pl => pl.name === nl.name));
               return [...prev, ...uniqueLeads];
             });
           },
           (progress) => {
+            console.log('Search progress:', progress);
             setSearchProgress(progress);
           },
           updateStats
         ));
       }
-      if (sources.yelp && yelpConfigs.length > 0) searchPromises.push(searchYelp(params, apiConfigs));
+      if (sources.yelp && yelpConfigs.length > 0) {
+        console.log('Adding Yelp search promise');
+        searchPromises.push(searchYelp(params, apiConfigs));
+      }
 
+      console.log('Waiting for search promises to resolve...');
       const responses = await Promise.all(searchPromises);
-      const yelpResponse = sources.yelp && yelpConfigs.length > 0 ? responses[responses.length - 1] : null;
+      console.log('All search promises resolved');
+      const yelpResponse = (sources.yelp && yelpConfigs.length > 0) ? responses[responses.length - 1] : null;
       
       if (yelpResponse) {
+        console.log('Yelp results found:', yelpResponse.length);
         setLeads(prev => {
-          const uniqueLeads = yelpResponse.filter((nl: Lead) => !prev.some(pl => pl.name === nl.name));
+          const uniqueLeads = (yelpResponse as Lead[]).filter((nl: Lead) => !prev.some(pl => pl.name === nl.name));
           return [...prev, ...uniqueLeads];
         });
       }
-
-    } catch (err) {
-      setError('An error occurred while searching. Please check your API keys.');
-      console.error(err);
+      console.log('Search completed successfully');
+    } catch (err: any) {
+      console.error('Search error:', err);
+      setError(err.message || 'An error occurred during search.');
     } finally {
       setIsSearching(false);
       setSearchProgress('');
+      console.log('Search process finished');
       setTimeout(() => {
         enrichAll();
       }, 500);
@@ -591,7 +608,13 @@ export default function App() {
             <aside className="lg:col-span-1 space-y-6">
               <div className="bg-white rounded-2xl p-6 shadow-sm border border-black/5">
                 <h2 className="text-sm font-semibold uppercase tracking-wider text-black/40 mb-6">Search Parameters</h2>
-                <form onSubmit={handleSearch} className="space-y-4">
+                <form 
+                  onSubmit={(e) => {
+                    console.log('Form submitted');
+                    handleSearch(e);
+                  }} 
+                  className="space-y-4"
+                >
                   <div>
                     <label className="block text-xs font-medium text-black/60 mb-1.5 uppercase tracking-wide">Business Type</label>
                     <div className="relative">

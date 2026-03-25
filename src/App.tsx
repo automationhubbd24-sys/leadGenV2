@@ -301,60 +301,49 @@ export default function App() {
       e.preventDefault();
       e.stopPropagation();
     }
-    console.log('handleSearch triggered with params:', params);
+    
+    // Check if params are valid
     if (!params.query || !params.city) {
-      console.log('Missing query or city');
       setError('Please enter a business type and city.');
       return;
     }
 
     const searchConfigs = apiConfigs.filter(c => (c.provider === 'google' || c.provider === 'custom') && c.isActive && c.key);
-    console.log('Active Search Configs:', searchConfigs.length);
 
     if (sources.google && searchConfigs.length === 0) {
-      console.log('No search configs found for Google Maps');
       setError('Google Maps এ সার্চ করার জন্য অন্তত একটি Gemini বা SalesmanChatbot API Key প্রয়োজন।');
       setShowSettings(true);
       return;
     }
 
-    console.log('Setting isSearching to true');
     setIsSearching(true);
     setSearchProgress('সার্চ শুরু হচ্ছে...');
     setError(null);
 
     try {
-      const searchPromises = [];
       if (sources.google && searchConfigs.length > 0) {
-        console.log('Starting searchGoogleMaps...');
-        searchPromises.push(searchGoogleMaps(
+        const results = await searchGoogleMaps(
           params, 
           apiConfigs, 
           (newLeads) => {
-            console.log('Received new leads:', newLeads.length);
             setLeads(prev => {
               const uniqueLeads = newLeads.filter(nl => !prev.some(pl => pl.name === nl.name));
               return [...prev, ...uniqueLeads];
             });
           },
           (progress) => {
-            console.log('Search Progress:', progress);
             setSearchProgress(progress);
           },
           updateStats
-        ));
+        );
+        console.log('Search finished, found leads:', results.length);
       }
-
-      console.log('Waiting for search to complete...');
-      await Promise.all(searchPromises);
-      console.log('Search completed successfully');
     } catch (err: any) {
-      console.error('Search error caught in handleSearch:', err);
+      console.error('Search error:', err);
       setError(err.message || 'An error occurred during search.');
     } finally {
       setIsSearching(false);
       setSearchProgress('');
-      console.log('Search process finished, isSearching set to false');
     }
   };
 

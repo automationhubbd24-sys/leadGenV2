@@ -303,11 +303,11 @@ export default function App() {
       return;
     }
 
-    const geminiConfigs = apiConfigs.filter(c => c.provider === 'google' && c.isActive && c.key);
+    const searchConfigs = apiConfigs.filter(c => (c.provider === 'google' || c.provider === 'custom') && c.isActive && c.key);
     const yelpConfigs = apiConfigs.filter(c => c.label.toLowerCase().includes('yelp') && c.isActive && c.key);
 
-    if (sources.google && geminiConfigs.length === 0) {
-      setError('Google Maps এ সার্চ করার জন্য অন্তত একটি Gemini API Key প্রয়োজন (Settings এ গিয়ে অ্যাড করুন)। ইমেইল খোঁজার জন্য আপনি যেকোনো প্রোভাইডার ব্যবহার করতে পারেন।');
+    if (sources.google && searchConfigs.length === 0) {
+      setError('Google Maps এ সার্চ করার জন্য অন্তত একটি Gemini বা SalesmanChatbot API Key প্রয়োজন (Settings এ গিয়ে অ্যাড করুন)।');
       setShowSettings(true);
       return;
     }
@@ -326,7 +326,7 @@ export default function App() {
       const results: Lead[] = [];
       
       const searchPromises = [];
-      if (sources.google && geminiConfigs.length > 0) {
+      if (sources.google && searchConfigs.length > 0) {
         searchPromises.push(searchGoogleMaps(
           params, 
           apiConfigs, 
@@ -943,7 +943,7 @@ export default function App() {
                     </div>
 
                     <div className="p-6 border border-dashed border-black/10 rounded-2xl space-y-6">
-                      <h4 className="text-xs font-bold uppercase tracking-wider text-black/40">Add New API Key</h4>
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-black/40">Add New Provider</h4>
                       <div className="grid grid-cols-1 gap-4">
                         <div>
                           <label className="block text-[10px] font-bold text-black/40 mb-1.5 uppercase tracking-wider">Provider</label>
@@ -957,16 +957,16 @@ export default function App() {
                             }}
                           >
                             <option value="google">Google AI Studio (Gemini)</option>
-                            <option value="custom">SalesmanChatbot (Custom)</option>
+                            <option value="custom">SalesmanChatbot (Branded)</option>
                           </select>
                         </div>
                       </div>
                       <div className="grid grid-cols-1 gap-4">
                         <div>
-                          <label className="block text-[10px] font-bold text-black/40 mb-1.5 uppercase tracking-wider">API Key(s) - One per line or comma separated</label>
-                          <textarea 
-                            placeholder="sk-..."
-                            rows={3}
+                          <label className="block text-[10px] font-bold text-black/40 mb-1.5 uppercase tracking-wider">API Key</label>
+                          <input 
+                            type="password"
+                            placeholder="Paste your key here..."
                             className="w-full px-4 py-2.5 bg-[#F1F3F5] border-none rounded-xl text-sm focus:ring-2 focus:ring-black/5 transition-all font-mono"
                             value={newConfig.keys || ''}
                             onChange={e => setNewConfig(c => ({ ...c, keys: e.target.value }))}
@@ -978,7 +978,7 @@ export default function App() {
                           <label className="block text-[10px] font-bold text-black/40 mb-1.5 uppercase tracking-wider">Model ID</label>
                           <input 
                             type="text"
-                            placeholder="e.g. llama-3.3-70b"
+                            placeholder="e.g. salesmanchatbot-pro"
                             className="w-full px-4 py-2.5 bg-[#F1F3F5] border-none rounded-xl text-sm focus:ring-2 focus:ring-black/5 transition-all"
                             value={newConfig.model || ''}
                             onChange={e => setNewConfig(c => ({ ...c, model: e.target.value }))}
@@ -989,7 +989,7 @@ export default function App() {
                             <label className="block text-[10px] font-bold text-black/40 mb-1.5 uppercase tracking-wider">Base URL (Optional)</label>
                             <input 
                               type="text"
-                              placeholder="https://api.yourprovider.com/v1"
+                              placeholder="https://api.salesmanchatbot.online/api/external/v1"
                               className="w-full px-4 py-2.5 bg-[#F1F3F5] border-none rounded-xl text-sm focus:ring-2 focus:ring-black/5 transition-all"
                               value={newConfig.baseUrl || ''}
                               onChange={e => setNewConfig(c => ({ ...c, baseUrl: e.target.value }))}
@@ -1002,7 +1002,7 @@ export default function App() {
                         className="w-full py-3 bg-black text-white rounded-xl text-sm font-bold hover:bg-black/80 transition-all flex items-center justify-center gap-2"
                       >
                         <PlusCircle className="w-4 h-4" />
-                        Add API Configuration
+                        Add Provider Configuration
                       </button>
                     </div>
                   </div>

@@ -82,6 +82,19 @@ export default function App() {
   const [settingsTab, setSettingsTab] = useState<'api' | 'smtp' | 'database'>('api');
   const [activeTab, setActiveTab] = useStickyState<'search' | 'email'>('search', 'activeTab');
 
+  const [apiConfigs, setApiConfigs] = useStickyState<APIKeyConfig[]>([
+    { id: 'default-gemini', provider: 'google', label: 'Default Gemini', key: '', model: 'gemini-2.5-flash', isActive: true },
+    { id: 'default-yelp', provider: 'custom', label: 'Yelp API', key: '', model: '', isActive: true }
+  ], 'apiConfigs');
+
+  const [newConfig, setNewConfig] = useState<Partial<APIKeyConfig>>({ provider: 'google', model: 'gemini-2.5-flash', isActive: true });
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saved'>('idle');
+
+  const [isEnrichingAll, setIsEnrichingAll] = useState(false);
+  const [lpm, setLpm] = useState(0); // Leads Per Minute
+  const enrichStartTime = useRef<number | null>(null);
+  const enrichedCount = useRef(0);
+
   // Load leads from DB on mount
   useEffect(() => {
     const loadLeads = async () => {
@@ -131,15 +144,6 @@ export default function App() {
       return () => clearInterval(interval);
     }
   }, [job]);
-
-
-  const [apiConfigs, setApiConfigs] = useStickyState<APIKeyConfig[]>([
-    { id: 'default-gemini', provider: 'google', label: 'Default Gemini', key: '', model: 'gemini-2.5-flash', isActive: true },
-    { id: 'default-yelp', provider: 'custom', label: 'Yelp API', key: '', model: '', isActive: true } // Keep yelp as a special case or 'custom'
-  ], 'apiConfigs');
-
-  const [newConfig, setNewConfig] = useState<Partial<APIKeyConfig>>({ provider: 'google', model: 'gemini-2.5-flash', isActive: true });
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'saved'>('idle');
 
   const handleAddConfig = () => {
     if (newConfig.key && newConfig.label) {
@@ -278,7 +282,6 @@ export default function App() {
     setIsSearching(true);
     setSearchProgress('সার্চ শুরু হচ্ছে...');
     setError(null);
-    // setLeads([]); // Don't clear leads, maybe the user wants to append
 
     try {
       const results: Lead[] = [];
@@ -302,30 +305,20 @@ export default function App() {
       if (sources.yelp && yelpConfig) searchPromises.push(searchYelp(params, apiConfigs));
 
       const responses = await Promise.all(searchPromises);
-      // For Yelp, we still add the final results
       if (sources.yelp && responses[responses.length - 1]) {
         const yelpResults = responses[responses.length - 1];
-        setLeads(prev => [...prev, ...yelpResults]);
+        setLeads(prev => {
+          const uniqueLeads = yelpResults.filter(nl => !prev.some(pl => pl.name === nl.name));
+          return [...prev, ...uniqueLeads];
+        });
       }
 
-      if (leads.length === 0 && results.length === 0) {
-        // We'll check again after a small delay to be sure
-        setTimeout(() => {
-          if (leads.length === 0) setError('No leads found. Try a different query or location.');
-        }, 2000);
-      } else {
-        // Automatically start enriching emails for the found leads
-        setSearchProgress('ইমেইল খোঁজা হচ্ছে...');
-        const allLeads = [...leads, ...results]; // This is a bit tricky due to state updates
-        // Better: trigger a function that uses the latest leads state
-      }
     } catch (err) {
       setError('An error occurred while searching. Please check your API keys.');
       console.error(err);
     } finally {
       setIsSearching(false);
       setSearchProgress('');
-      // Use useEffect or a timeout to trigger enrichment after state has settled
       setTimeout(() => {
         enrichAll();
       }, 500);
@@ -361,11 +354,6 @@ export default function App() {
     }
   };
 
-  const [isEnrichingAll, setIsEnrichingAll] = useState(false);
-  const [lpm, setLpm] = useState(0); // Leads Per Minute
-  const enrichStartTime = useRef<number | null>(null);
-  const enrichedCount = useRef(0);
-
   const enrichAll = async () => {
     if (isEnrichingAll) return;
     const activeConfigs = apiConfigs.filter(c => c.isActive && c.key);
@@ -385,7 +373,6 @@ export default function App() {
     enrichStartTime.current = Date.now();
     enrichedCount.current = 0;
     
-    // Auto-scaling Concurrency: 2 workers per active key, max 20
     const concurrency = Math.min(activeConfigs.length * 2, 20);
     const queue = [...leadsToEnrich];
     
@@ -398,10 +385,9 @@ export default function App() {
           await enrichLead(lead.id);
           enrichedCount.current++;
           
-          // Calculate LPM every few leads
           if (enrichStartTime.current) {
             const elapsedMins = (Date.now() - enrichStartTime.current) / 60000;
-            if (elapsedMins > 0.05) { // Update after 3 seconds
+            if (elapsedMins > 0.05) {
               setLpm(Math.round(enrichedCount.current / elapsedMins));
             }
           }
@@ -411,12 +397,11 @@ export default function App() {
       }
     };
 
-    // Start parallel workers
     const workers = Array(concurrency).fill(null).map(() => worker());
     await Promise.all(workers);
     
     setIsEnrichingAll(false);
-    setLpm(0); // Reset after completion
+    setLpm(0);
   };
 
   const exportCSV = () => {
@@ -1052,6 +1037,59 @@ export default function App() {
                         <PlusCircle className="w-4 h-4" />
                         Add Gmail Account
                       </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    <div className="bg-amber-50 p-6 rounded-2xl border border-amber-100">
+                      <div className="flex items-center gap-3 mb-4">
+                        <AlertCircle className="w-5 h-5 text-amber-600" />
+                        <h3 className="text-sm font-bold text-amber-900 uppercase tracking-wider">Database Management</h3>
+                      </div>
+                      <p className="text-xs text-amber-700 leading-relaxed mb-6">
+                        Your leads are stored locally in your browser's IndexedDB. This ensures that your data is safe even if you close the tab or lose internet connection.
+                      </p>
+                      
+                      <div className="flex flex-col gap-3">
+                        <button 
+                          onClick={async () => {
+                            if (confirm('Are you sure you want to clear ALL leads from the local database? This cannot be undone.')) {
+                              await clearLeads();
+                              setLeads([]);
+                            }
+                          }}
+                          className="flex items-center justify-center gap-2 py-3 bg-red-50 text-red-600 rounded-xl text-xs font-bold hover:bg-red-100 transition-all"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          CLEAR ALL DATA
+                        </button>
+                        <button 
+                          onClick={() => {
+                            const data = JSON.stringify(leads, null, 2);
+                            const blob = new Blob([data], { type: 'application/json' });
+                            const url = URL.createObjectURL(blob);
+                            const link = document.createElement('a');
+                            link.href = url;
+                            link.download = `leadgen_backup_${new Date().toISOString().split('T')[0]}.json`;
+                            link.click();
+                          }}
+                          className="flex items-center justify-center gap-2 py-3 bg-black text-white rounded-xl text-xs font-bold hover:bg-black/80 transition-all"
+                        >
+                          <Download className="w-4 h-4" />
+                          DOWNLOAD BACKUP (JSON)
+                        </button>
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="p-4 bg-[#F1F3F5] rounded-2xl text-center">
+                        <p className="text-[10px] font-bold text-black/40 uppercase tracking-widest mb-1">Total Leads</p>
+                        <p className="text-2xl font-black">{leads.length}</p>
+                      </div>
+                      <div className="p-4 bg-[#F1F3F5] rounded-2xl text-center">
+                        <p className="text-[10px] font-bold text-black/40 uppercase tracking-widest mb-1">Storage Type</p>
+                        <p className="text-sm font-black uppercase">IndexedDB</p>
+                      </div>
                     </div>
                   </div>
                 )}

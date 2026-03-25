@@ -587,7 +587,7 @@ export default function App() {
                         type="text"
                         placeholder="e.g. Plumber, Dentist"
                         className="w-full pl-10 pr-4 py-2.5 bg-[#F1F3F5] border-none rounded-xl text-sm focus:ring-2 focus:ring-black/5 transition-all"
-                        value={params.query}
+                        value={params.query || ''}
                         onChange={e => setParams(p => ({ ...p, query: e.target.value }))}
                       />
                     </div>
@@ -601,7 +601,7 @@ export default function App() {
                         type="text"
                         placeholder="e.g. Los Angeles"
                         className="w-full pl-10 pr-4 py-2.5 bg-[#F1F3F5] border-none rounded-xl text-sm focus:ring-2 focus:ring-black/5 transition-all"
-                        value={params.city}
+                        value={params.city || ''}
                         onChange={e => setParams(p => ({ ...p, city: e.target.value }))}
                       />
                     </div>
@@ -614,7 +614,7 @@ export default function App() {
                         type="text"
                         placeholder="CA"
                         className="w-full px-4 py-2.5 bg-[#F1F3F5] border-none rounded-xl text-sm focus:ring-2 focus:ring-black/5 transition-all"
-                        value={params.state}
+                        value={params.state || ''}
                         onChange={e => setParams(p => ({ ...p, state: e.target.value }))}
                       />
                     </div>
@@ -624,7 +624,7 @@ export default function App() {
                         type="text"
                         placeholder="USA"
                         className="w-full px-4 py-2.5 bg-[#F1F3F5] border-none rounded-xl text-sm focus:ring-2 focus:ring-black/5 transition-all"
-                        value={params.country}
+                        value={params.country || ''}
                         onChange={e => setParams(p => ({ ...p, country: e.target.value }))}
                       />
                     </div>

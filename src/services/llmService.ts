@@ -7,7 +7,8 @@ export async function callLLM(
   configs: APIKeyConfig[],
   systemPrompt: string = "You are a helpful assistant.",
   responseMimeType: string = "text/plain",
-  responseSchema?: any
+  responseSchema?: any,
+  onUsageUpdate?: (usage: any) => void
 ): Promise<string> {
   const activeConfigs = configs.filter(c => c.isActive && c.key);
   if (activeConfigs.length === 0) {
@@ -28,10 +29,10 @@ export async function callLLM(
 
     try {
       console.log(`Rotating to: ${config.label} (${config.provider})`);
-      if (config.provider === 'google') {
-        return await callGemini(prompt, config, systemPrompt, responseMimeType, responseSchema);
+      if (config.provider === 'google' || config.provider === 'custom') {
+        return await callGemini(prompt, config, systemPrompt, responseMimeType, responseSchema, onUsageUpdate);
       } else {
-        return await callOpenAICompatible(prompt, config, systemPrompt, responseMimeType, responseSchema);
+        return await callOpenAICompatible(prompt, config, systemPrompt, responseMimeType, responseSchema, onUsageUpdate);
       }
     } catch (err: any) {
       console.error(`Error with provider ${config.provider} (${config.label}):`, err.message);
@@ -51,10 +52,17 @@ async function callGemini(
   config: APIKeyConfig,
   systemPrompt: string,
   responseMimeType: string,
-  responseSchema?: any
+  responseSchema?: any,
+  onUsageUpdate?: (usage: any) => void
 ): Promise<string> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${config.model}:generateContent?key=${config.key}`;
+  const url = config.provider === 'custom' 
+    ? `${config.baseUrl}/chat/completions`
+    : `https://generativelanguage.googleapis.com/v1beta/models/${config.model}:generateContent?key=${config.key}`;
   
+  if (config.provider === 'custom') {
+    return await callOpenAICompatible(prompt, config, systemPrompt, responseMimeType, responseSchema, onUsageUpdate);
+  }
+
   const body: any = {
     contents: [{ role: "user", parts: [{ text: prompt }] }],
     systemInstruction: { parts: [{ text: systemPrompt }] },
@@ -78,6 +86,14 @@ async function callGemini(
     throw new Error(data.error?.message || "Gemini API call failed");
   }
 
+  if (data.usageMetadata) {
+    onUsageUpdate?.({
+      promptTokenCount: data.usageMetadata.promptTokenCount,
+      candidatesTokenCount: data.usageMetadata.candidatesTokenCount,
+      totalTokenCount: data.usageMetadata.totalTokenCount
+    });
+  }
+
   return data.candidates[0].content.parts[0].text;
 }
 
@@ -86,7 +102,8 @@ async function callOpenAICompatible(
   config: APIKeyConfig,
   systemPrompt: string,
   responseMimeType: string,
-  responseSchema?: any
+  responseSchema?: any,
+  onUsageUpdate?: (usage: any) => void
 ): Promise<string> {
   let baseUrl = config.baseUrl;
   if (!baseUrl) {
@@ -122,6 +139,14 @@ async function callOpenAICompatible(
   const data = await response.json();
   if (!response.ok) {
     throw new Error(data.error?.message || "LLM API call failed");
+  }
+
+  if (data.usage) {
+    onUsageUpdate?.({
+      promptTokenCount: data.usage.prompt_tokens,
+      candidatesTokenCount: data.usage.completion_tokens,
+      totalTokenCount: data.usage.total_tokens
+    });
   }
 
   return data.choices[0].message.content;

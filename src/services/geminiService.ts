@@ -20,7 +20,8 @@ export async function searchGoogleMaps(
   params: SearchParams,
   apiConfigs: APIKeyConfig[],
   onBatchUpdate?: (newLeads: Lead[]) => void,
-  onProgress?: (message: string) => void
+  onProgress?: (message: string) => void,
+  onUsageUpdate?: (usage: any) => void
 ): Promise<Lead[]> {
   const { query, city, state, country } = params;
   const locationStr = `${city}${state ? `, ${state}` : ""}, ${country}`;
@@ -38,6 +39,7 @@ export async function searchGoogleMaps(
       If the country is not an English-speaking one, also include terms in the local language (e.g. for Bangladesh, include Bengali terms).
       Format as a simple comma-separated list.`,
     });
+    onUsageUpdate?.(keywordResponse.response.usageMetadata);
     const keywords = [query, ...keywordResponse.text.split(',').map(k => k.trim())].slice(0, 10);
 
     const { ai: discoveryAi, model: discoveryModel } = getNextGeminiClient(apiConfigs);
@@ -48,6 +50,7 @@ export async function searchGoogleMaps(
       contents: `List every single major and minor neighborhood, commercial hub, and business district in "${locationStr}". 
       I need an exhaustive list for a deep scan. Include at least 40-50 areas if possible. Format as a comma-separated list.`,
     });
+    onUsageUpdate?.(discoveryResponse.response.usageMetadata);
     const discoveredAreas = discoveryResponse.text.split(',').map(a => a.trim()).filter(a => a.length > 0);
     const areasToSearch = [locationStr, ...discoveredAreas].slice(0, 40);
 
@@ -78,6 +81,7 @@ export async function searchGoogleMaps(
               contents: searchPrompt,
               config: { tools: [{ googleMaps: {} } as any] },
             });
+            onUsageUpdate?.(response.response.usageMetadata);
 
             const text = response.text;
             if (!text || text.length < 10) return;
@@ -105,6 +109,7 @@ export async function searchGoogleMaps(
                 },
               },
             });
+            onUsageUpdate?.(parseResponse.response.usageMetadata);
 
             const leadsData = JSON.parse(parseResponse.text);
             const batchLeads: Lead[] = [];

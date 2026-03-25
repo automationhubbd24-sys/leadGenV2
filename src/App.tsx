@@ -25,7 +25,9 @@ import {
   Send,
   FileText,
   Clock,  
-  BarChart2
+  BarChart2,
+  Activity,
+  Zap
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { motion, AnimatePresence } from 'motion/react';
@@ -127,6 +129,24 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [job, setJob] = useState<any>(null);
   const [isCampaignRunning, setIsCampaignRunning] = useState(false);
+
+  // Usage Stats
+  const [stats, setStats] = useState({
+    apiCalls: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0
+  });
+
+  const updateStats = (usage: any) => {
+    if (!usage) return;
+    setStats(prev => ({
+      apiCalls: prev.apiCalls + 1,
+      inputTokens: prev.inputTokens + (usage.promptTokenCount || 0),
+      outputTokens: prev.outputTokens + (usage.candidatesTokenCount || 0),
+      totalTokens: prev.totalTokens + (usage.totalTokenCount || 0)
+    }));
+  };
 
   // Poll for job status
   useEffect(() => {
@@ -320,7 +340,8 @@ export default function App() {
           },
           (progress) => {
             setSearchProgress(progress);
-          }
+          },
+          updateStats
         ));
       }
       if (sources.yelp && yelpConfigs.length > 0) searchPromises.push(searchYelp(params, apiConfigs));
@@ -364,7 +385,7 @@ export default function App() {
       2. Look for email patterns like info@, contact@, sales@, or owner's email.
       3. Return ONLY the email address if found, otherwise return "NOT_FOUND".`;
 
-      const response = await callLLM(prompt, activeConfigs, "You are an expert lead researcher.");
+      const response = await callLLM(prompt, activeConfigs, "You are an expert lead researcher.", "text/plain", undefined, updateStats);
       const emailMatch = response.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
       const email = emailMatch ? emailMatch[0] : undefined;
       
@@ -540,6 +561,32 @@ export default function App() {
       </header>
 
       <main className="max-w-7xl mx-auto px-6 py-8">
+        {/* Usage Stats Banner */}
+        {stats.apiCalls > 0 && (
+          <div className="mb-8 flex flex-wrap gap-4 items-center bg-white p-4 rounded-2xl shadow-sm border border-black/5">
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-[#F1F3F5] rounded-xl">
+              <Activity className="w-4 h-4 text-black/40" />
+              <span className="text-xs font-bold uppercase tracking-wider text-black/60">API Calls:</span>
+              <span className="text-sm font-mono font-bold text-black">{stats.apiCalls}</span>
+            </div>
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-[#F1F3F5] rounded-xl">
+              <Zap className="w-4 h-4 text-amber-500/60" />
+              <span className="text-xs font-bold uppercase tracking-wider text-black/60">Input Tokens:</span>
+              <span className="text-sm font-mono font-bold text-black">{stats.inputTokens.toLocaleString()}</span>
+            </div>
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-[#F1F3F5] rounded-xl">
+              <Zap className="w-4 h-4 text-emerald-500/60" />
+              <span className="text-xs font-bold uppercase tracking-wider text-black/60">Output Tokens:</span>
+              <span className="text-sm font-mono font-bold text-black">{stats.outputTokens.toLocaleString()}</span>
+            </div>
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-black text-white rounded-xl ml-auto">
+              <BarChart2 className="w-4 h-4 text-white/60" />
+              <span className="text-xs font-bold uppercase tracking-wider text-white/60">Total Tokens:</span>
+              <span className="text-sm font-mono font-bold">{stats.totalTokens.toLocaleString()}</span>
+            </div>
+          </div>
+        )}
+
         {activeTab === 'search' ? (
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
             {/* Sidebar Filters */}

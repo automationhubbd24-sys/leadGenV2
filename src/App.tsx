@@ -140,12 +140,18 @@ export default function App() {
 
   const updateStats = (usage: any) => {
     if (!usage) return;
-    setStats(prev => ({
-      apiCalls: prev.apiCalls + 1,
-      inputTokens: prev.inputTokens + (usage.promptTokenCount || 0),
-      outputTokens: prev.outputTokens + (usage.candidatesTokenCount || 0),
-      totalTokens: prev.totalTokens + (usage.totalTokenCount || 0)
-    }));
+    setStats(prev => {
+      const inputTokens = (usage.promptTokenCount || usage.prompt_tokens || 0);
+      const outputTokens = (usage.candidatesTokenCount || usage.completion_tokens || 0);
+      const totalTokens = (usage.totalTokenCount || usage.total_tokens || (inputTokens + outputTokens));
+      
+      return {
+        apiCalls: prev.apiCalls + 1,
+        inputTokens: prev.inputTokens + inputTokens,
+        outputTokens: prev.outputTokens + outputTokens,
+        totalTokens: prev.totalTokens + totalTokens
+      };
+    });
   };
 
   // Poll for job status
@@ -547,7 +553,7 @@ export default function App() {
       <main className="max-w-7xl mx-auto px-6 py-8">
         {/* Usage Stats Banner */}
         {stats.apiCalls > 0 && (
-          <div className="mb-8 flex flex-wrap gap-4 items-center bg-white p-4 rounded-2xl shadow-sm border border-black/5">
+          <div className="mb-8 flex flex-wrap gap-4 items-center bg-white p-4 rounded-2xl shadow-sm border border-black/5 select-text">
             <div className="flex items-center gap-2 px-3 py-1.5 bg-[#F1F3F5] rounded-xl">
               <Activity className="w-4 h-4 text-black/40" />
               <span className="text-xs font-bold uppercase tracking-wider text-black/60">API Calls:</span>
@@ -556,17 +562,17 @@ export default function App() {
             <div className="flex items-center gap-2 px-3 py-1.5 bg-[#F1F3F5] rounded-xl">
               <Zap className="w-4 h-4 text-amber-500/60" />
               <span className="text-xs font-bold uppercase tracking-wider text-black/60">Input Tokens:</span>
-              <span className="text-sm font-mono font-bold text-black">{stats.inputTokens.toLocaleString()}</span>
+              <span className="text-sm font-mono font-bold text-black">{stats.inputTokens?.toLocaleString() || '0'}</span>
             </div>
             <div className="flex items-center gap-2 px-3 py-1.5 bg-[#F1F3F5] rounded-xl">
               <Zap className="w-4 h-4 text-emerald-500/60" />
               <span className="text-xs font-bold uppercase tracking-wider text-black/60">Output Tokens:</span>
-              <span className="text-sm font-mono font-bold text-black">{stats.outputTokens.toLocaleString()}</span>
+              <span className="text-sm font-mono font-bold text-black">{stats.outputTokens?.toLocaleString() || '0'}</span>
             </div>
             <div className="flex items-center gap-2 px-3 py-1.5 bg-black text-white rounded-xl ml-auto">
               <BarChart2 className="w-4 h-4 text-white/60" />
               <span className="text-xs font-bold uppercase tracking-wider text-white/60">Total Tokens:</span>
-              <span className="text-sm font-mono font-bold">{stats.totalTokens.toLocaleString()}</span>
+              <span className="text-sm font-mono font-bold">{stats.totalTokens?.toLocaleString() || '0'}</span>
             </div>
           </div>
         )}

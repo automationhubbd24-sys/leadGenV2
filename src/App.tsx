@@ -65,12 +65,12 @@ function useStickyState<T>(defaultValue: T, key: string): [T, React.Dispatch<Rea
 }
 
 export default function App() {
-  const [params, setParams] = useState<SearchParams>({
+  const [params, setParams] = useStickyState<SearchParams>({
     query: '',
     city: '',
     state: '',
     country: 'USA'
-  });
+  }, 'searchParams');
   const [sources, setSources] = useState({
     google: true,
     yelp: false
@@ -302,13 +302,17 @@ export default function App() {
       e.stopPropagation();
     }
     
-    // Check if params are valid
-    if (!params.query || !params.city) {
+    const q = params.query?.trim();
+    const c = params.city?.trim();
+
+    console.log('Searching for:', { q, c });
+
+    if (!q || !c) {
       setError('Please enter a business type and city.');
       return;
     }
 
-    const searchConfigs = apiConfigs.filter(c => (c.provider === 'google' || c.provider === 'custom') && c.isActive && c.key);
+    const searchConfigs = apiConfigs.filter(conf => (conf.provider === 'google' || conf.provider === 'custom') && conf.isActive && conf.key);
 
     if (sources.google && searchConfigs.length === 0) {
       setError('Google Maps এ সার্চ করার জন্য অন্তত একটি Gemini বা SalesmanChatbot API Key প্রয়োজন।');
@@ -323,7 +327,7 @@ export default function App() {
     try {
       if (sources.google && searchConfigs.length > 0) {
         const results = await searchGoogleMaps(
-          params, 
+          { ...params, query: q, city: c }, 
           apiConfigs, 
           (newLeads) => {
             setLeads(prev => {
@@ -588,7 +592,10 @@ export default function App() {
                         placeholder="e.g. Plumber, Dentist"
                         className="w-full pl-10 pr-4 py-2.5 bg-[#F1F3F5] border-none rounded-xl text-sm focus:ring-2 focus:ring-black/5 transition-all"
                         value={params.query || ''}
-                        onChange={e => setParams(p => ({ ...p, query: e.target.value }))}
+                        onChange={e => {
+                          const val = e.target.value;
+                          setParams(p => ({ ...p, query: val }));
+                        }}
                       />
                     </div>
                   </div>
@@ -602,7 +609,10 @@ export default function App() {
                         placeholder="e.g. Los Angeles"
                         className="w-full pl-10 pr-4 py-2.5 bg-[#F1F3F5] border-none rounded-xl text-sm focus:ring-2 focus:ring-black/5 transition-all"
                         value={params.city || ''}
-                        onChange={e => setParams(p => ({ ...p, city: e.target.value }))}
+                        onChange={e => {
+                          const val = e.target.value;
+                          setParams(p => ({ ...p, city: val }));
+                        }}
                       />
                     </div>
                   </div>
@@ -615,7 +625,10 @@ export default function App() {
                         placeholder="CA"
                         className="w-full px-4 py-2.5 bg-[#F1F3F5] border-none rounded-xl text-sm focus:ring-2 focus:ring-black/5 transition-all"
                         value={params.state || ''}
-                        onChange={e => setParams(p => ({ ...p, state: e.target.value }))}
+                        onChange={e => {
+                          const val = e.target.value;
+                          setParams(p => ({ ...p, state: val }));
+                        }}
                       />
                     </div>
                     <div>
@@ -625,7 +638,10 @@ export default function App() {
                         placeholder="USA"
                         className="w-full px-4 py-2.5 bg-[#F1F3F5] border-none rounded-xl text-sm focus:ring-2 focus:ring-black/5 transition-all"
                         value={params.country || ''}
-                        onChange={e => setParams(p => ({ ...p, country: e.target.value }))}
+                        onChange={e => {
+                          const val = e.target.value;
+                          setParams(p => ({ ...p, country: val }));
+                        }}
                       />
                     </div>
                   </div>

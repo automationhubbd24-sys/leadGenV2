@@ -85,15 +85,14 @@ export default function App() {
   const [activeTab, setActiveTab] = useStickyState<'search' | 'email'>('search', 'activeTab');
 
   const [apiConfigs, setApiConfigs] = useStickyState<APIKeyConfig[]>([
-    { id: 'default-gemini', provider: 'google', label: 'Default Gemini', key: '', model: 'gemini-2.5-flash', isActive: true },
+    { id: 'default-gemini', provider: 'google', label: 'Google AI Studio', key: '', model: 'gemini-2.5-flash', isActive: true },
     { id: 'salesman-chatbot', provider: 'custom', label: 'SalesmanChatbot', key: '', model: 'salesmanchatbot-pro', isActive: true, baseUrl: 'https://api.salesmanchatbot.online/api/external/v1' }
   ], 'apiConfigs');
 
   const [newConfig, setNewConfig] = useState<any>({ 
     provider: 'google', 
-    model: 'gemini-2.0-flash', 
+    model: 'gemini-2.5-flash', 
     isActive: true,
-    label: '',
     keys: '' 
   });
 
@@ -171,14 +170,14 @@ export default function App() {
   }, [job]);
 
   const handleAddConfig = () => {
-    if (newConfig.keys && newConfig.label) {
+    if (newConfig.keys) {
       const keyList = newConfig.keys.split(/[\n,]+/).map((k: string) => k.trim()).filter((k: string) => k.length > 0);
       
       const newConfigs = keyList.map((k, index) => ({
         id: `${Date.now()}-${index}`,
         provider: newConfig.provider,
         model: newConfig.model,
-        label: keyList.length > 1 ? `${newConfig.label} ${index + 1}` : newConfig.label,
+        label: newConfig.provider === 'google' ? 'Google AI' : 'SalesmanChatbot',
         key: k,
         isActive: true,
         baseUrl: newConfig.baseUrl
@@ -189,7 +188,6 @@ export default function App() {
         provider: newConfig.provider, 
         model: newConfig.model, 
         isActive: true,
-        label: '',
         keys: '',
         baseUrl: newConfig.baseUrl
       });
@@ -911,7 +909,7 @@ export default function App() {
                 {settingsTab === 'api' ? (
                   <div className="space-y-6">
                     <div className="space-y-4">
-                      <h3 className="text-xs font-bold uppercase tracking-wider text-black/40">Active API Keys (Round-robin)</h3>
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-black/40">Active API Keys</h3>
                       <div className="space-y-2">
                         {apiConfigs.map(config => (
                           <div key={config.id} className="flex items-center gap-4 p-4 bg-[#F1F3F5]/50 border border-black/5 rounded-2xl group">
@@ -946,17 +944,7 @@ export default function App() {
 
                     <div className="p-6 border border-dashed border-black/10 rounded-2xl space-y-6">
                       <h4 className="text-xs font-bold uppercase tracking-wider text-black/40">Add New API Key</h4>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-[10px] font-bold text-black/40 mb-1.5 uppercase tracking-wider">Label</label>
-                          <input 
-                            type="text"
-                            placeholder="e.g. My Groq Key"
-                            className="w-full px-4 py-2.5 bg-[#F1F3F5] border-none rounded-xl text-sm focus:ring-2 focus:ring-black/5 transition-all"
-                            value={newConfig.label || ''}
-                            onChange={e => setNewConfig(c => ({ ...c, label: e.target.value }))}
-                          />
-                        </div>
+                      <div className="grid grid-cols-1 gap-4">
                         <div>
                           <label className="block text-[10px] font-bold text-black/40 mb-1.5 uppercase tracking-wider">Provider</label>
                           <select 

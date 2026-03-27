@@ -5,6 +5,7 @@ import dotenv from "dotenv";
 import multer from "multer";
 import xlsx from "xlsx";
 import nodemailer from "nodemailer";
+import { GoogleGenAI } from "@google/genai";
 
 dotenv.config();
 
@@ -13,6 +14,7 @@ const upload = multer({ storage: multer.memoryStorage() });
 
 // In-memory job store
 const jobs: { [key: string]: any } = {};
+const searchJobs: { [key: string]: any } = {};
 
 async function startServer() {
   const app = express();
@@ -44,6 +46,54 @@ async function startServer() {
     } catch (error: any) {
       console.error("Yelp API Error:", error.response?.data || error.message);
       res.status(error.response?.status || 500).json(error.response?.data || { error: "Failed to fetch from Yelp" });
+    }
+  });
+
+  // Endpoint to start a new search
+  app.post('/api/search/start', async (req, res) => {
+    const { params, apiConfigs } = req.body;
+    
+    if (!params || !apiConfigs || apiConfigs.length === 0) {
+      return res.status(400).json({ error: 'Search parameters and API keys are required.' });
+    }
+
+    const jobId = `search_${Date.now()}`;
+    searchJobs[jobId] = {
+      id: jobId,
+      status: 'running',
+      progress: 'Starting search...',
+      leads: [],
+      startTime: Date.now(),
+      params
+    };
+
+    res.json({ jobId, message: 'Search started successfully.' });
+
+    // Run the search in the background
+    runSearch(jobId, params, apiConfigs);
+  });
+
+  // Endpoint to get search status
+  app.get('/api/search/status/:jobId', (req, res) => {
+    const { jobId } = req.params;
+    const job = searchJobs[jobId];
+    if (job) {
+      res.json(job);
+    } else {
+      res.status(404).json({ error: 'Search not found.' });
+    }
+  });
+
+  // Endpoint to stop search
+  app.post('/api/search/stop/:jobId', (req, res) => {
+    const { jobId } = req.params;
+    const job = searchJobs[jobId];
+    if (job) {
+      job.status = 'stopped';
+      job.progress = 'Search stopped by user.';
+      res.json({ message: 'Search stopped.' });
+    } else {
+      res.status(404).json({ error: 'Search not found.' });
     }
   });
 
@@ -261,6 +311,142 @@ async function runCampaign(jobId: string, leads: any[], smtps: any[]) {
 
   job.status = 'completed';
   job.endTime = Date.now();
+}
+
+// Helper for runSearch
+let searchRotationIndex = 0;
+function getNextSearchClient(configs: any[]) {
+  const activeConfigs = configs.filter(c => (c.provider === 'google' || c.provider === 'custom' || c.provider === 'openrouter') && c.isActive && c.key);
+  if (activeConfigs.length === 0) throw new Error("No active API keys found.");
+  
+  const config = activeConfigs[searchRotationIndex % activeConfigs.length];
+  searchRotationIndex++;
+  
+  if (config.provider === 'custom' || config.provider === 'openrouter') {
+    return { isCustom: true, config: config };
+  }
+
+  return {
+    isCustom: false,
+    ai: new GoogleGenAI(config.key),
+    model: config.model || "gemini-2.0-flash"
+  };
+}
+
+async function callSearchLLM(prompt: string, configs: any[], systemPrompt: string = "You are a lead generation expert. Your goal is to find businesses and their official contact information, especially emails.") {
+  const client = getNextSearchClient(configs);
+  if (client.isCustom) {
+    const url = `${client.config.baseUrl}/chat/completions`;
+    const response = await axios.post(url, {
+      model: client.config.model,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: prompt }
+      ]
+    }, {
+      headers: { 'Authorization': `Bearer ${client.config.key}` }
+    });
+    return { text: response.data.choices[0].message.content };
+  } else {
+    const model = client.ai.getGenerativeModel({ 
+      model: client.model,
+      systemInstruction: systemPrompt
+    });
+    const result = await model.generateContent(prompt);
+    return { text: result.response.text() };
+  }
+}
+
+async function callSearchWithTool(prompt: string, configs: any[]) {
+  const client = getNextSearchClient(configs);
+  const systemPrompt = "You are an advanced business research agent. Use your search tools to find businesses and their contact details. CRITICAL: You must find the official email address for every business you find. Search their websites, social media, or public records to find it. Do not just say 'N/A' if you can find it.";
+  
+  if (client.isCustom) {
+    return await callSearchLLM(prompt, configs, systemPrompt);
+  } else {
+    const model = client.ai.getGenerativeModel({ 
+      model: client.model,
+      systemInstruction: systemPrompt,
+      tools: [{ googleMaps: {} } as any]
+    });
+    const result = await model.generateContent(prompt);
+    return { text: result.response.text() };
+  }
+}
+
+async function runSearch(jobId: string, params: any, apiConfigs: any[]) {
+  const job = searchJobs[jobId];
+  const { query, city, state, country } = params;
+  const locationStr = `${city}${state ? `, ${state}` : ""}, ${country}`;
+  const seenNames = new Set<string>();
+
+  try {
+    job.progress = "বিজনেসের ধরন বিশ্লেষণ করছি...";
+    const keywordPrompt = `For the business type "${query}" in "${country}", list 10 most common alternative categories, synonyms, or related sub-sectors used on Google Maps. Format as a simple comma-separated list.`;
+    const keywordResponse = await callSearchLLM(keywordPrompt, apiConfigs);
+    const keywords = [query, ...keywordResponse.text.split(',').map(k => k.trim())].slice(0, 10);
+
+    job.progress = "শহরের প্রতিটি এলাকা (Neighborhoods) খুঁজে বের করছি...";
+    const discoveryPrompt = `List every single major and minor neighborhood, commercial hub, and business district in "${locationStr}". Include at least 40-50 areas if possible. Format as a comma-separated list.`;
+    const discoveryResponse = await callSearchLLM(discoveryPrompt, apiConfigs);
+    const areasToSearch = [locationStr, ...discoveryResponse.text.split(',').map(a => a.trim())].slice(0, 40);
+
+    const activeConfigs = apiConfigs.filter(c => (c.provider === 'google' || c.provider === 'custom') && c.isActive && c.key);
+    const concurrency = Math.max(2, activeConfigs.length);
+
+    for (let i = 0; i < areasToSearch.length; i++) {
+      if (job.status === 'stopped') break;
+      const area = areasToSearch[i];
+      job.progress = `অনুসন্ধান চলছে: ${area} (${i + 1}/${areasToSearch.length})`;
+      
+      for (let j = 0; j < keywords.length; j += concurrency) {
+        if (job.status === 'stopped') break;
+        const currentKeywords = keywords.slice(j, j + concurrency);
+        
+        await Promise.all(currentKeywords.map(async (keyword) => {
+          try {
+            const searchPrompt = `Find EVERY SINGLE business for "${keyword}" in "${area}, ${country}". You MUST use your search tools. Be extremely exhaustive. For each business, extract: name, phone, website, rating, and review count. CRITICAL: Also find the official contact email for each business. If you cannot find it directly on Google Maps, use your search tools to check their website or social media pages.`;
+            const searchResponse = await callSearchWithTool(searchPrompt, apiConfigs);
+            const text = searchResponse.text;
+            if (!text || text.length < 10) return;
+
+            const parsePrompt = `Extract business info into a JSON array of objects (keys: name, phone, email, website, rating, reviewCount) from: ${text}. Return ONLY valid JSON. Capture any mentioned email in the 'email' field. If no email is found, use null.`;
+            const parseResponse = await callSearchLLM(parsePrompt, apiConfigs, "Extract business info into valid JSON array.");
+            
+            let leadsData;
+            try {
+              const jsonMatch = parseResponse.text.match(/\[.*\]/s);
+              leadsData = JSON.parse(jsonMatch ? jsonMatch[0] : parseResponse.text);
+            } catch (e) { return; }
+
+            leadsData.forEach((item: any) => {
+              const lowerName = item.name.toLowerCase();
+              if (!seenNames.has(lowerName)) {
+                seenNames.add(lowerName);
+                job.leads.push({
+                  id: `gm-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                  name: item.name,
+                  phone: item.phone || "N/A",
+                  email: item.email || undefined,
+                  website: item.website,
+                  location: area,
+                  source: "Google Maps",
+                  rating: item.rating || 0,
+                  reviewCount: item.reviewCount || 0,
+                });
+              }
+            });
+          } catch (err) { console.error("Batch search error:", err.message); }
+        }));
+      }
+    }
+    job.status = job.status === 'stopped' ? 'stopped' : 'completed';
+    job.progress = job.status === 'completed' ? "অনুসন্ধান সম্পন্ন হয়েছে।" : "অনুসন্ধান থামানো হয়েছে।";
+  } catch (error: any) {
+    console.error("Search Runner Error:", error);
+    job.status = 'failed';
+    job.progress = `ত্রুটি: ${error.message}`;
+  }
 }
 
 startServer().catch(err => {

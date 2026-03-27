@@ -130,6 +130,9 @@ export default function App() {
   const [job, setJob] = useState<any>(null);
   const [isCampaignRunning, setIsCampaignRunning] = useState(false);
 
+  // Search Job State
+  const [searchJob, setSearchJob] = useStickyState<any>(null, 'searchJob');
+
   // Usage Stats
   const [stats, setStats] = useState({
     apiCalls: 0,
@@ -154,7 +157,7 @@ export default function App() {
     });
   };
 
-  // Poll for job status
+  // Poll for campaign status
   useEffect(() => {
     if (job?.id && job.status === 'running') {
       const interval = setInterval(async () => {
@@ -175,6 +178,43 @@ export default function App() {
       return () => clearInterval(interval);
     }
   }, [job]);
+
+  // Poll for search status
+  useEffect(() => {
+    if (searchJob?.id && searchJob.status === 'running') {
+      setIsSearching(true);
+      const interval = setInterval(async () => {
+        try {
+          const res = await fetch(`/api/search/status/${searchJob.id}`);
+          const data = await res.json();
+          setSearchJob(data);
+          
+          if (data.leads && data.leads.length > 0) {
+            setLeads(prev => {
+              const newLeads = data.leads.filter((nl: Lead) => !prev.some(pl => pl.name === nl.name));
+              return [...prev, ...newLeads];
+            });
+          }
+
+          setSearchProgress(data.progress);
+
+          if (data.status !== 'running') {
+            setIsSearching(false);
+            setSearchProgress('');
+            clearInterval(interval);
+          }
+        } catch (err) {
+          console.error('Search polling error:', err);
+          setIsSearching(false);
+          clearInterval(interval);
+        }
+      }, 3000);
+      return () => clearInterval(interval);
+    } else if (searchJob?.status === 'running') {
+      setIsSearching(true);
+      setSearchProgress(searchJob.progress);
+    }
+  }, [searchJob?.id, searchJob?.status]);
 
   const handleAddConfig = () => {
     if (newConfig.keys) {
@@ -312,8 +352,6 @@ export default function App() {
     const q = params.query?.trim();
     const c = params.city?.trim();
 
-    console.log('Searching for:', { q, c });
-
     if (!q || !c) {
       setError('Please enter a business type and city.');
       return;
@@ -332,29 +370,42 @@ export default function App() {
     setError(null);
 
     try {
-      if (sources.google && searchConfigs.length > 0) {
-        const results = await searchGoogleMaps(
-          { ...params, query: q, city: c }, 
-          apiConfigs, 
-          (newLeads) => {
-            setLeads(prev => {
-              const uniqueLeads = newLeads.filter(nl => !prev.some(pl => pl.name === nl.name));
-              return [...prev, ...uniqueLeads];
-            });
-          },
-          (progress) => {
-            setSearchProgress(progress);
-          },
-          updateStats
-        );
-        console.log('Search finished, found leads:', results.length);
+      const res = await fetch('/api/search/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ params: { ...params, query: q, city: c }, apiConfigs })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setSearchJob(data);
+      } else {
+        setError(data.error || 'Failed to start search.');
+        setIsSearching(false);
       }
     } catch (err: any) {
       console.error('Search error:', err);
       setError(err.message || 'An error occurred during search.');
-    } finally {
       setIsSearching(false);
-      setSearchProgress('');
+    }
+  };
+
+  const handleStopSearch = async () => {
+    if (!searchJob?.id) return;
+    try {
+      await fetch(`/api/search/stop/${searchJob.id}`, { method: 'POST' });
+      setSearchJob(prev => ({ ...prev, status: 'stopped' }));
+      setIsSearching(false);
+      setSearchProgress('Search stopped.');
+    } catch (err) {
+      console.error('Stop search error:', err);
+    }
+  };
+
+  const handleClearAll = async () => {
+    if (window.confirm('আপনি কি সব লিড মুছে ফেলতে চান?')) {
+      await clearLeads();
+      setLeads([]);
+      setSearchJob(null);
     }
   };
 
@@ -680,16 +731,21 @@ export default function App() {
                   <button 
                     type="button"
                     onClick={() => {
-                      console.log('Find Leads button clicked');
-                      handleSearch();
+                      if (isSearching) {
+                        handleStopSearch();
+                      } else {
+                        handleSearch();
+                      }
                     }}
-                    disabled={isSearching}
-                    className="w-full py-3 bg-black text-white rounded-xl text-sm font-bold hover:bg-black/80 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 mt-6"
+                    className={cn(
+                      "w-full py-3 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2 mt-6",
+                      isSearching ? "bg-red-500 hover:bg-red-600 text-white" : "bg-black text-white hover:bg-black/80 disabled:opacity-50 disabled:cursor-not-allowed"
+                    )}
                   >
                     {isSearching ? (
                       <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Searching...
+                        <X className="w-4 h-4" />
+                        Stop Search
                       </>
                     ) : (
                       <>
@@ -698,6 +754,16 @@ export default function App() {
                       </>
                     )}
                   </button>
+                  {leads.length > 0 && !isSearching && (
+                    <button 
+                      type="button"
+                      onClick={handleClearAll}
+                      className="w-full py-3 bg-red-50 text-red-600 rounded-xl text-sm font-bold hover:bg-red-100 transition-all flex items-center justify-center gap-2 mt-2"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      Clear All Results
+                    </button>
+                  )}
                 </form>
               </div>
 

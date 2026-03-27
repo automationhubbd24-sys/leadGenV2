@@ -37,7 +37,7 @@ export async function searchGoogleMaps(
   const allLeads: Lead[] = [];
   const seenNames = new Set<string>();
 
-  const callSearchLLM = async (prompt: string, configs: APIKeyConfig[], systemPrompt: string = "") => {
+  const callSearchLLM = async (prompt: string, configs: APIKeyConfig[], systemPrompt: string = "You are a lead generation expert. Your goal is to find businesses and their official contact information, especially emails.") => {
     const client = getNextGeminiClient(configs);
     if (client.isCustom) {
       const { callLLM } = await import('./llmService');
@@ -56,15 +56,19 @@ export async function searchGoogleMaps(
 
   const callSearchWithTool = async (prompt: string, configs: APIKeyConfig[]) => {
     const client = getNextGeminiClient(configs);
+    const systemPrompt = "You are an advanced business research agent. Use your search tools to find businesses and their contact details. CRITICAL: You must find the official email address for every business you find. Search their websites, social media, or public records to find it. Do not just say 'N/A' if you can find it.";
     if (client.isCustom) {
       const { callLLM } = await import('./llmService');
-      const response = await callLLM(prompt, [client.config!], "You must use your internal search tools if available.", "text/plain", undefined, onUsageUpdate);
+      const response = await callLLM(prompt, [client.config!], systemPrompt, "text/plain", undefined, onUsageUpdate);
       return { text: response };
     } else {
       const response = await client.ai!.models.generateContent({
         model: client.model!,
         contents: prompt,
-        config: { tools: [{ googleMaps: {} } as any] },
+        config: { 
+          tools: [{ googleMaps: {} } as any],
+          systemInstruction: systemPrompt as any
+        },
       });
       onUsageUpdate?.(response.usageMetadata);
       return { text: response.text };
@@ -105,14 +109,16 @@ export async function searchGoogleMaps(
             const searchPrompt = `Find EVERY SINGLE business for "${keyword}" in "${area}, ${country}". 
             You MUST use your search tools. Be extremely exhaustive. 
             For each business, extract: name, phone, website, rating, and review count.
-            CRITICAL: Also find the official contact email for each business. Use the website or your internal knowledge to provide the most accurate email.`;
+            CRITICAL: Also find the official contact email for each business. If you cannot find it directly on Google Maps, use your search tools to check their website or social media pages. We need a 100% email discovery rate if the email exists online.`;
 
             const searchResponse = await callSearchWithTool(searchPrompt, apiConfigs);
             const text = searchResponse.text;
             if (!text || text.length < 10) return;
             
-            const parsePrompt = `Extract business info into a JSON array of objects (keys: name, phone, email, website, rating, reviewCount) from: ${text}. Return ONLY valid JSON. If email is not found, use null.`;
-            const parseResponse = await callSearchLLM(parsePrompt, apiConfigs, "Extract business info into valid JSON array.");
+            const parsePrompt = `Extract business info into a JSON array of objects (keys: name, phone, email, website, rating, reviewCount) from: ${text}. 
+            Return ONLY valid JSON. 
+            CRITICAL: If an email address is mentioned anywhere in the text for a business, make sure to capture it in the 'email' field. If no email is found after deep searching, use null.`;
+            const parseResponse = await callSearchLLM(parsePrompt, apiConfigs, "Extract business info into valid JSON array. Be extremely precise with email extraction.");
             
             let leadsData;
             try {

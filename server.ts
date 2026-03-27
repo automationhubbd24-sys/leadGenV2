@@ -7,8 +7,13 @@ import xlsx from "xlsx";
 import nodemailer from "nodemailer";
 import { GoogleGenAI } from "@google/genai";
 import https from "https";
+import puppeteer from "puppeteer-extra";
+import StealthPlugin from "puppeteer-extra-plugin-stealth";
 
 dotenv.config();
+
+// Use stealth plugin to avoid detection
+puppeteer.use(StealthPlugin());
 
 // Axios Global Configuration for better stability
 const axiosInstance = axios.create({
@@ -471,6 +476,117 @@ async function callSearchWithTool(prompt: string, configs: any[], signal?: Abort
   }
 }
 
+// Email Scraper using direct web request and regex (No LLM needed)
+async function scrapeEmailsFromWebsite(url: string, signal?: AbortSignal) {
+  if (!url || !url.startsWith('http')) return undefined;
+  
+  try {
+    console.log(`[Scraper] Searching emails on: ${url}`);
+    const response = await axiosInstance.get(url, { 
+      timeout: 15000,
+      signal: signal,
+      headers: { 'Accept': 'text/html' }
+    });
+    
+    const html = response.data;
+    const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+    const emails = html.match(emailRegex);
+    
+    if (emails && emails.length > 0) {
+      // Clean and deduplicate
+      const uniqueEmails = [...new Set(emails.map((e: string) => e.toLowerCase()))];
+      // Filter out common false positives like images or icons
+      const validEmails = uniqueEmails.filter(e => !e.match(/\.(png|jpg|jpeg|gif|svg|webp)$/));
+      if (validEmails.length > 0) {
+        console.log(`[Scraper] Found ${validEmails.length} emails on ${url}`);
+        return validEmails[0]; // Return the first valid email
+      }
+    }
+    
+    return undefined;
+  } catch (err: any) {
+    // Silent fail for email scraping
+    return undefined;
+  }
+}
+
+// Google Maps Scraper using Puppeteer
+async function scrapeGoogleMaps(query: string, location: string, jobId: string, signal?: AbortSignal) {
+  const job = searchJobs[jobId];
+  const browser = await puppeteer.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
+  });
+
+  try {
+    const page = await browser.newPage();
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36');
+    
+    const searchUrl = `https://www.google.com/maps/search/${encodeURIComponent(query + " in " + location)}`;
+    console.log(`[Puppeteer] Navigating to: ${searchUrl}`);
+    
+    await page.goto(searchUrl, { waitUntil: 'networkidle2' });
+
+    // Wait for the results list to load
+    try {
+      await page.waitForSelector('div[role="feed"]', { timeout: 10000 });
+    } catch (e) {
+      console.log("[Puppeteer] Results feed not found, might be only one result or no results.");
+    }
+
+    // Auto-scroll to load more leads
+    console.log("[Puppeteer] Scrolling to load leads...");
+    let previousHeight = 0;
+    let currentLeadsCount = 0;
+    
+    for (let i = 0; i < 5; i++) { // Scroll 5 times to get ~100 leads per area
+      if (signal?.aborted) break;
+      
+      await page.evaluate(() => {
+        const feed = document.querySelector('div[role="feed"]');
+        if (feed) feed.scrollBy(0, 1000);
+      });
+      await new Promise(r => setTimeout(resolve => setTimeout(resolve, 2000)));
+    }
+
+    // Extract lead data from the page
+    const leads = await page.evaluate(() => {
+      const items = Array.from(document.querySelectorAll('div[role="article"]'));
+      return items.map(item => {
+        const name = item.querySelector('div.fontHeadlineSmall')?.textContent || '';
+        const link = (item.querySelector('a.hfpxzc') as HTMLAnchorElement)?.href || '';
+        const rating = item.querySelector('span.MW4etd')?.textContent || '0';
+        const reviews = item.querySelector('span.UY7F9')?.textContent?.replace(/[()]/g, '') || '0';
+        
+        // Try to find phone and website in the sub-text
+        const infoDivs = Array.from(item.querySelectorAll('div.W4Efsd'));
+        let phone = '';
+        let website = '';
+        
+        infoDivs.forEach(div => {
+          const text = div.textContent || '';
+          if (text.match(/\+\d+/)) phone = text;
+        });
+
+        return {
+          name: name.trim(),
+          phone: phone.trim(),
+          website: '', // We'll get this from details or separate logic
+          rating: parseFloat(rating),
+          reviewCount: parseInt(reviews),
+          mapsLink: link
+        };
+      }).filter(l => l.name.length > 0);
+    });
+
+    console.log(`[Puppeteer] Extracted ${leads.length} potential leads from page.`);
+    return leads;
+
+  } finally {
+    await browser.close();
+  }
+}
+
 async function runSearch(jobId: string, params: any, apiConfigs: any[]) {
   const job = searchJobs[jobId];
   if (!job) return;
@@ -482,85 +598,63 @@ async function runSearch(jobId: string, params: any, apiConfigs: any[]) {
   const locationStr = `${city}${state ? `, ${state}` : ""}, ${country}`;
   const seenNames = new Set<string>();
 
-  console.log(`[Deep Search] Starting Exhaustive Scan for ${query} in ${locationStr}`);
+  console.log(`[Matrix Search] Starting Puppeteer Scan for ${query} in ${locationStr}`);
 
   try {
-    // Phase 1: Deep Neighborhood Discovery
-    job.progress = "শহরের প্রতিটি এলাকা ও পাড়া-মহল্লা খুঁজে বের করছি (Exhaustive Discovery)...";
-    const discoveryPrompt = `List EVERY SINGLE neighborhood, business district, commercial zone, and suburb in "${locationStr}". 
-    I need a very long and detailed list for a deep search. Aim for at least 50-80 names. 
-    Format as a simple comma-separated list of names only.`;
+    // Phase 1: Deep Neighborhood Discovery (Using LLM)
+    job.progress = "শহরের প্রতিটি এলাকা খুঁজে বের করছি (Discovery)...";
+    const discoveryPrompt = `List EVERY SINGLE neighborhood, business district, and suburb in "${locationStr}". 
+    Format as a simple comma-separated list. Aim for at least 30-50 areas.`;
     
-    const discoveryResponse = await callSearchLLM(discoveryPrompt, apiConfigs, "You are a local geography expert.", controller.signal, jobId);
+    const discoveryResponse = await callSearchLLM(discoveryPrompt, apiConfigs, "Geography expert.", controller.signal, jobId);
     const areasToSearch = [locationStr, ...discoveryResponse.text.split(',').map(a => a.trim())].filter(a => a.length > 2);
     
-    console.log(`[Deep Search] Found ${areasToSearch.length} sub-locations to scan.`);
+    console.log(`[Matrix Search] Found ${areasToSearch.length} areas to scan.`);
 
-    // Phase 2: Matrix Search with high concurrency
-    const activeConfigs = apiConfigs.filter(c => (c.provider === 'google' || c.provider === 'custom' || c.provider === 'openrouter') && c.isActive && c.key);
-    const concurrency = Math.max(3, activeConfigs.length * 2); // Scan multiple areas at once
-
-    for (let i = 0; i < areasToSearch.length; i += concurrency) {
+    // Phase 2: Puppeteer Matrix Scan
+    for (let i = 0; i < areasToSearch.length; i++) {
       if (job.status === 'stopped' || controller.signal.aborted) break;
       
-      const currentBatch = areasToSearch.slice(i, i + concurrency);
-      job.progress = `গভীর অনুসন্ধান চলছে: ${i + 1}/${areasToSearch.length} টি এলাকা সম্পন্ন`;
-      console.log(`[Deep Search] Scanning batch: ${currentBatch.join(', ')}`);
+      const area = areasToSearch[i];
+      job.progress = `স্ক্যান চলছে: ${area} (${i + 1}/${areasToSearch.length})`;
+      console.log(`[Matrix Search] Scanning area with Puppeteer: ${area}`);
 
-      await Promise.all(currentBatch.map(async (area) => {
-        try {
-          if (job.status === 'stopped' || controller.signal.aborted) return;
-
-          const searchPrompt = `Find ALL businesses for "${query}" in "${area}, ${country}". Use your tools. 
-          Be extremely thorough. Extract name, phone, website, rating, review count, and official contact email. 
-          Return ONLY a JSON array of objects. We need as many as you can find in this specific block/neighborhood.`;
-
-          const searchResponse = await callSearchWithTool(searchPrompt, apiConfigs, controller.signal, jobId);
-          const text = searchResponse.text;
-          if (!text || text.length < 10) return;
-
-          let leadsData;
-          try {
-            const jsonMatch = text.match(/\[.*\]/s);
-            leadsData = JSON.parse(jsonMatch ? jsonMatch[0] : text);
-          } catch (e) {
-            // Fallback parse
-            const parseResponse = await callSearchLLM(`Extract business info into JSON array: ${text.substring(0, 5000)}`, apiConfigs, "Return JSON only.", controller.signal, jobId);
-            const jsonMatch = parseResponse.text.match(/\[.*\]/s);
-            leadsData = JSON.parse(jsonMatch ? jsonMatch[0] : parseResponse.text);
-          }
-
-          if (Array.isArray(leadsData)) {
-            leadsData.forEach((item: any) => {
-              const name = String(item.name || '').trim();
-              const lowerName = name.toLowerCase();
-              if (name && !seenNames.has(lowerName)) {
-                seenNames.add(lowerName);
-                job.leads.push({
-                  id: `gm-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                  name: name,
-                  phone: item.phone || "N/A",
-                  email: item.email || undefined,
-                  website: item.website,
-                  location: area,
-                  source: "Google Maps (Deep Scan)",
-                  rating: item.rating || 0,
-                  reviewCount: item.reviewCount || 0,
-                });
-              }
-            });
-          }
-        } catch (err: any) {
-          if (err.message !== "SEARCH_STOPPED") {
-            console.error(`[Deep Search Error] Area ${area}:`, err.message);
+      try {
+        const rawLeads = await scrapeGoogleMaps(query, area, jobId, controller.signal);
+        
+        for (const lead of rawLeads) {
+          if (job.status === 'stopped' || controller.signal.aborted) break;
+          
+          const lowerName = lead.name.toLowerCase();
+          if (!seenNames.has(lowerName)) {
+            seenNames.add(lowerName);
+            
+            // For each lead, try to get website and email
+            // Note: In a real production app, we'd go to the business details page to get the website
+            // For now, let's add them to the list
+            const newLead = {
+              id: `pm-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+              name: lead.name,
+              phone: lead.phone || "N/A",
+              email: undefined, // Will be enriched if website found
+              website: undefined,
+              location: area,
+              source: "Google Maps (Puppeteer)",
+              rating: lead.rating || 0,
+              reviewCount: lead.reviewCount || 0,
+            };
+            
+            job.leads.push(newLead);
           }
         }
-      }));
+        
+        console.log(`[Matrix Search] Total leads so far: ${job.leads.length}`);
+        
+        // Stop if we have enough leads
+        if (job.leads.length >= 2000) break;
 
-      // Break if we hit a massive amount of leads to prevent crashes
-      if (job.leads.length >= 2000) {
-        console.log("[Deep Search] Limit reached (2000 leads). Stopping.");
-        break;
+      } catch (err: any) {
+        console.error(`[Matrix Search Error] Area ${area}:`, err.message);
       }
     }
 
@@ -573,13 +667,12 @@ async function runSearch(jobId: string, params: any, apiConfigs: any[]) {
       job.status = 'stopped';
       job.progress = "অনুসন্ধান থামানো হয়েছে।";
     } else {
-      console.error("[Deep Search Critical Error]:", error);
+      console.error("[Matrix Search Critical Error]:", error);
       job.status = 'failed';
       job.progress = `সার্চ চলাকালীন ত্রুটি হয়েছে: ${error.message}`;
     }
   } finally {
     delete controllers[jobId];
-    console.log(`[Deep Search] Finished. Total leads: ${job.leads.length}`);
   }
 }
 

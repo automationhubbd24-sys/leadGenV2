@@ -202,8 +202,136 @@ async function runCampaign(jobId: string, leads: any[], smtps: any[]) {
 
   for (const lead of leads) {
     if (job.status === 'stopped') break;
-    // ... existing lead processing ...
+
+    // Normalize lead keys
+    const normalizedLead: any = {};
+    Object.keys(lead).forEach(k => normalizedLead[k.toUpperCase().trim()] = lead[k]);
+
+    const targetEmail = normalizedLead.EMAIL || normalizedLead.E_MAIL || normalizedLead.MAIL || '';
+
+    if (!targetEmail) {
+      console.warn(`Skipping lead: No EMAIL column found for ${JSON.stringify(lead)}`);
+      job.failed++;
+      job.results.push({ 
+        name: normalizedLead.NAME || 'Unknown', 
+        status: 'failed', 
+        error: 'No email address found in the spreadsheet.', 
+        timestamp: Date.now() 
+      });
+      continue;
+    }
+
+    let emailSent = false;
+    let attempts = 0;
+    let lastError = '';
+
+    // Try to send the email using available SMTPs in rotation
+    while (!emailSent && attempts < activeSmtps.length) {
+      const smtpConfig = activeSmtps[currentSmtpIndex];
+      
+      // Skip if this SMTP is marked as invalid or reached its limit
+      const dailyLimit = smtpConfig.dailyLimit || 100;
+      const sentToday = job.results.filter(
+        (r: any) => r.smtpUser === smtpConfig.user && 
+        r.status === 'sent' &&
+        new Date(r.timestamp).toDateString() === new Date().toDateString()
+      ).length;
+
+      if (smtpConfig.isInvalid || sentToday >= dailyLimit) {
+        currentSmtpIndex = (currentSmtpIndex + 1) % activeSmtps.length;
+        attempts++;
+        continue;
+      }
+
+      const transporter = nodemailer.createTransport({
+        host: smtpConfig.host,
+        port: smtpConfig.port,
+        secure: smtpConfig.port === 465,
+        auth: {
+          user: smtpConfig.user,
+          pass: smtpConfig.pass,
+        },
+        connectionTimeout: 15000, 
+        greetingTimeout: 10000,
+        socketTimeout: 20000,
+      });
+
+      let subject = spin(normalizedLead.SUBJECT || '');
+      let body = spin(normalizedLead.BODY || '');
+
+      Object.keys(normalizedLead).forEach(key => {
+        const val = String(normalizedLead[key] || '');
+        const regexWithBraces = new RegExp(`{{${key}}}`, 'gi');
+        subject = subject.replace(regexWithBraces, val);
+        body = body.replace(regexWithBraces, val);
+        const plainRegex = new RegExp(`\\b${key}\\b`, 'g'); 
+        subject = subject.replace(plainRegex, val);
+        body = body.replace(plainRegex, val);
+      });
+
+      // Convert newlines to <br> tags and support simple **bold** text
+      const formattedBody = body
+        .replace(/\n/g, '<br>')
+        .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+
+      const htmlBody = `
+        <div style="font-family: sans-serif; line-height: 1.6; color: #333; white-space: normal;">
+          ${formattedBody}
+        </div>
+      `;
+
+      try {
+        await transporter.sendMail({
+          from: `"${smtpConfig.senderName}" <${smtpConfig.user}>`,
+          to: targetEmail,
+          subject: subject,
+          html: htmlBody,
+        });
+
+        job.sent++;
+        job.results.push({ 
+          email: targetEmail, 
+          status: 'sent', 
+          smtpUser: smtpConfig.user, 
+          timestamp: Date.now() 
+        });
+        emailSent = true;
+        console.log(`Email successfully sent to ${targetEmail} via ${smtpConfig.user}`);
+        currentSmtpIndex = (currentSmtpIndex + 1) % activeSmtps.length;
+      } catch (error: any) {
+        lastError = error.message;
+        console.error(`SMTP Error (${smtpConfig.user} -> ${targetEmail}):`, error.message);
+        
+        const isAuthError = error.code === 'EAUTH' || error.responseCode === 535;
+        const isConnError = error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT' || error.code === 'ESOCKET';
+
+        if (isAuthError || isConnError) {
+          smtpConfig.isInvalid = true;
+          console.log(`Marking SMTP ${smtpConfig.user} as invalid and rotating...`);
+        }
+
+        currentSmtpIndex = (currentSmtpIndex + 1) % activeSmtps.length;
+        attempts++;
+      }
+    }
+
+    if (!emailSent) {
+      job.failed++;
+      job.results.push({ 
+        email: targetEmail, 
+        status: 'failed', 
+        error: lastError || 'All SMTP servers failed for this lead.', 
+        timestamp: Date.now() 
+      });
+    }
+
+    // Delay between leads
+    const delay = activeSmtps.length > 1 ? 2000 : 10000;
+    await new Promise(resolve => setTimeout(resolve, delay));
   }
+
+  job.status = 'completed';
+  job.endTime = Date.now();
 }
 
 // Global controllers to manage search/campaign stops

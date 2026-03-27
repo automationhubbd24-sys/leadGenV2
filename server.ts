@@ -6,8 +6,22 @@ import multer from "multer";
 import xlsx from "xlsx";
 import nodemailer from "nodemailer";
 import { GoogleGenAI } from "@google/genai";
+import https from "https";
 
 dotenv.config();
+
+// Axios Global Configuration for better stability
+const axiosInstance = axios.create({
+  httpsAgent: new https.Agent({ 
+    keepAlive: true,
+    rejectUnauthorized: false // Sometimes needed for certain environments
+  }),
+  timeout: 60000,
+  headers: {
+    'User-Agent': 'LeadGenPro/1.0',
+    'Accept': 'application/json'
+  }
+});
 
 // Setup for file uploads
 const upload = multer({ storage: multer.memoryStorage() });
@@ -32,7 +46,7 @@ async function startServer() {
     }
 
     try {
-      const response = await axios.get("https://api.yelp.com/v3/businesses/search", {
+      const response = await axiosInstance.get("https://api.yelp.com/v3/businesses/search", {
         headers: {
           Authorization: `Bearer ${apiKey}`,
         },
@@ -229,7 +243,7 @@ async function callSearchLLM(prompt: string, configs: any[], systemPrompt: strin
   if (client.isCustom) {
     const url = `${client.config.baseUrl}/chat/completions`;
     try {
-      const response = await axios.post(url, {
+      const response = await axiosInstance.post(url, {
         model: client.config.model || "google/gemini-2.0-flash-001",
         messages: [
           { role: "system", content: systemPrompt },
@@ -241,7 +255,6 @@ async function callSearchLLM(prompt: string, configs: any[], systemPrompt: strin
           'HTTP-Referer': 'https://github.com/automationhubbd24-sys/leadGenV2',
           'X-Title': 'LeadGen Pro'
         },
-        timeout: 45000,
         signal: signal
       });
       return { text: response.data.choices[0].message.content };

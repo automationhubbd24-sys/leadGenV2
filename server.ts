@@ -482,63 +482,81 @@ async function runSearch(jobId: string, params: any, apiConfigs: any[]) {
   const locationStr = `${city}${state ? `, ${state}` : ""}, ${country}`;
   const seenNames = new Set<string>();
 
-  console.log(`[Search] Starting job ${jobId} for ${query} in ${locationStr}`);
+  console.log(`[Search] Starting FAST & CHEAP search for ${query} in ${locationStr}`);
 
   try {
-    // Phase 1: Keyword Expansion
-    job.progress = "বিজনেসের ধরন বিশ্লেষণ করছি...";
-    const keywordPrompt = `For the business type "${query}" in "${country}", list 10 most common alternative categories, synonyms, or related sub-sectors used on Google Maps. Format as a simple comma-separated list.`;
-    const keywordResponse = await callSearchLLM(keywordPrompt, apiConfigs, "You are a lead generation expert.", controller.signal, jobId);
-    const keywords = [query, ...keywordResponse.text.split(',').map(k => k.trim())].slice(0, 10);
-    console.log(`[Search] Keywords: ${keywords.join(', ')}`);
+    // Phase 1: Direct Search (No expansion to save money)
+    job.progress = `অনুসন্ধান চলছে: ${locationStr}`;
+    
+    // We only do ONE search initially, just like the old version
+    const searchPrompt = `Find businesses for "${query}" in "${locationStr}". Use your search tools. 
+    Extract: name, phone, website, rating, review count, and official contact email. 
+    Return the results as a JSON array of objects.`;
 
-    // Phase 2: Area Discovery
-    job.progress = "শহরের প্রধান এলাকাগুলো খুঁজে বের করছি...";
-    const discoveryPrompt = `List major neighborhoods and business districts in "${locationStr}". Include at least 20 areas. Format as a comma-separated list.`;
-    const discoveryResponse = await callSearchLLM(discoveryPrompt, apiConfigs, "You are a lead generation expert.", controller.signal, jobId);
-    const areasToSearch = [locationStr, ...discoveryResponse.text.split(',').map(a => a.trim())].slice(0, 20);
-    console.log(`[Search] Areas: ${areasToSearch.join(', ')}`);
+    if (job.status === 'stopped' || controller.signal.aborted) throw new Error("SEARCH_STOPPED");
 
-    // Phase 3: Matrix Search (Sequential for stability, similar to old logic)
-    for (const area of areasToSearch) {
-      if (job.status === 'stopped' || controller.signal.aborted) break;
-      job.progress = `অনুসন্ধান চলছে: ${area}`;
-      console.log(`[Search] Processing area: ${area}`);
+    const searchResponse = await callSearchWithTool(searchPrompt, apiConfigs, controller.signal, jobId);
+    const text = searchResponse.text;
 
-      for (const keyword of keywords) {
-        if (job.status === 'stopped' || controller.signal.aborted) break;
+    if (text && text.length > 10) {
+      if (job.status === 'stopped' || controller.signal.aborted) throw new Error("SEARCH_STOPPED");
 
-        try {
-          // STEP 1: SEARCH (Just like the old version)
-          console.log(`[Search] Searching for "${keyword}" in "${area}"`);
-          const searchPrompt = `Find businesses for "${keyword}" in "${area}, ${country}". Use your search tools. Extract: name, phone, website, rating, review count, and official contact email.`;
-          const searchResponse = await callSearchWithTool(searchPrompt, apiConfigs, controller.signal, jobId);
-          const text = searchResponse.text;
-          if (!text || text.length < 10) continue;
+      // Phase 2: Precise Parsing (Only if needed)
+      const parsePrompt = `Extract business info into a JSON array (keys: name, phone, email, website, rating, reviewCount) from: ${text}. Return ONLY valid JSON.`;
+      const parseResponse = await callSearchLLM(parsePrompt, apiConfigs, "Extract into JSON.", controller.signal, jobId);
+      
+      let leadsData;
+      try {
+        const jsonMatch = parseResponse.text.match(/\[.*\]/s);
+        leadsData = JSON.parse(jsonMatch ? jsonMatch[0] : parseResponse.text);
+      } catch (e) { 
+        console.error("[Search] Parse error");
+      }
 
-          // STEP 2: PARSE (2-step process like the old version)
-          console.log(`[Search] Parsing results for "${keyword}" in "${area}"`);
-          const parsePrompt = `Extract business info into a JSON array (keys: name, phone, email, website, rating, reviewCount) from this text: ${text.substring(0, 8000)}. Return ONLY valid JSON array. If no email, use null.`;
-          const parseResponse = await callSearchLLM(parsePrompt, apiConfigs, "Extract into JSON array.", controller.signal, jobId);
-          
-          let leadsData;
-          try {
-            const jsonMatch = parseResponse.text.match(/\[.*\]/s);
-            const jsonStr = jsonMatch ? jsonMatch[0] : parseResponse.text;
-            leadsData = JSON.parse(jsonStr);
-          } catch (e) { 
-            console.error(`[Search] JSON parse error for ${keyword} in ${area}`);
-            continue; 
+      if (Array.isArray(leadsData)) {
+        leadsData.forEach((item: any) => {
+          const name = String(item.name || '').trim();
+          if (name && !seenNames.has(name.toLowerCase())) {
+            seenNames.add(name.toLowerCase());
+            job.leads.push({
+              id: `gm-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+              name: name,
+              phone: item.phone || "N/A",
+              email: item.email || undefined,
+              website: item.website,
+              location: locationStr,
+              source: "Google Maps",
+              rating: item.rating || 0,
+              reviewCount: item.reviewCount || 0,
+            });
           }
+        });
+      }
+    }
 
-          if (Array.isArray(leadsData)) {
-            const newLeadsFound: any[] = [];
-            leadsData.forEach((item: any) => {
+    // Phase 3: Minimal Expansion (Only if first search was small)
+    if (job.leads.length < 5 && job.status !== 'stopped' && !controller.signal.aborted) {
+      job.progress = "আরও কিছু এলাকায় অনুসন্ধান করছি...";
+      const areaPrompt = `List 3 major neighborhoods in "${locationStr}". Format: comma-separated.`;
+      const areaResponse = await callSearchLLM(areaPrompt, apiConfigs, "Lead gen expert.", controller.signal, jobId);
+      const extraAreas = areaResponse.text.split(',').map(a => a.trim()).slice(0, 3);
+
+      for (const area of extraAreas) {
+        if (job.status === 'stopped' || controller.signal.aborted) break;
+        job.progress = `অনুসন্ধান চলছে: ${area}`;
+        
+        const subSearchPrompt = `Find businesses for "${query}" in "${area}, ${country}". Use tools. Return JSON array.`;
+        const subResponse = await callSearchWithTool(subSearchPrompt, apiConfigs, controller.signal, jobId);
+        
+        try {
+          const jsonMatch = subResponse.text.match(/\[.*\]/s);
+          const subLeads = JSON.parse(jsonMatch ? jsonMatch[0] : subResponse.text);
+          if (Array.isArray(subLeads)) {
+            subLeads.forEach((item: any) => {
               const name = String(item.name || '').trim();
-              const lowerName = name.toLowerCase();
-              if (name && !seenNames.has(lowerName)) {
-                seenNames.add(lowerName);
-                const newLead = {
+              if (name && !seenNames.has(name.toLowerCase())) {
+                seenNames.add(name.toLowerCase());
+                job.leads.push({
                   id: `gm-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
                   name: name,
                   phone: item.phone || "N/A",
@@ -548,28 +566,20 @@ async function runSearch(jobId: string, params: any, apiConfigs: any[]) {
                   source: "Google Maps",
                   rating: item.rating || 0,
                   reviewCount: item.reviewCount || 0,
-                };
-                newLeadsFound.push(newLead);
-                job.leads.push(newLead);
+                });
               }
             });
-            if (newLeadsFound.length > 0) {
-              console.log(`[Search] Found ${newLeadsFound.length} new leads. Total so far: ${job.leads.length}`);
-            }
           }
-        } catch (err: any) {
-          if (err.message === "SEARCH_STOPPED" || err.message === "canceled") throw new Error("SEARCH_STOPPED");
-          console.error(`[Search Error] ${keyword} in ${area}:`, err.message);
-        }
+        } catch (e) {}
       }
     }
-    
+
     if (job.status !== 'stopped') {
       job.status = 'completed';
       job.progress = "অনুসন্ধান সম্পন্ন হয়েছে।";
     }
   } catch (error: any) {
-    if (error.message === "SEARCH_STOPPED") {
+    if (error.message === "SEARCH_STOPPED" || controller.signal.aborted) {
       job.status = 'stopped';
       job.progress = "অনুসন্ধান থামানো হয়েছে।";
     } else {
@@ -579,7 +589,7 @@ async function runSearch(jobId: string, params: any, apiConfigs: any[]) {
     }
   } finally {
     delete controllers[jobId];
-    console.log(`[Search] Job ${jobId} finished. Total leads: ${job.leads.length}`);
+    console.log(`[Search] Job finished. Leads: ${job.leads.length}`);
   }
 }
 

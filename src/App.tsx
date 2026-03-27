@@ -777,9 +777,24 @@ export default function App() {
               </div>
 
               {isSearching && searchProgress && (
-                <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl flex items-center gap-3 animate-pulse">
-                  <Loader2 className="w-4 h-4 text-blue-500 animate-spin shrink-0" />
-                  <p className="text-xs text-blue-700 font-bold uppercase tracking-wider">{searchProgress}</p>
+                <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl space-y-3 animate-pulse">
+                  <div className="flex items-center gap-3">
+                    <Loader2 className="w-4 h-4 text-blue-500 animate-spin shrink-0" />
+                    <p className="text-xs text-blue-700 font-bold uppercase tracking-wider">{searchProgress}</p>
+                  </div>
+                  
+                  {stats.apiCalls > 0 && (
+                    <div className="pt-3 border-t border-blue-200 grid grid-cols-2 gap-2">
+                      <div className="bg-white/50 p-2 rounded-lg">
+                        <p className="text-[10px] text-blue-600 uppercase font-bold tracking-tight">AI Calls</p>
+                        <p className="text-sm font-black text-blue-900">{stats.apiCalls}</p>
+                      </div>
+                      <div className="bg-white/50 p-2 rounded-lg">
+                        <p className="text-[10px] text-blue-600 uppercase font-bold tracking-tight">Total Tokens</p>
+                        <p className="text-sm font-black text-blue-900">{stats.totalTokens.toLocaleString()}</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 

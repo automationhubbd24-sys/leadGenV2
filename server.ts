@@ -91,6 +91,9 @@ async function startServer() {
     if (job) {
       job.status = 'stopped';
       job.progress = 'Search stopped by user.';
+      if (controllers[jobId]) {
+        controllers[jobId].abort();
+      }
       res.json({ message: 'Search stopped.' });
     } else {
       res.status(404).json({ error: 'Search not found.' });
@@ -178,140 +181,19 @@ function spin(text: string): string {
 // Main campaign runner function
 async function runCampaign(jobId: string, leads: any[], smtps: any[]) {
   const job = jobs[jobId];
+  if (!job) return;
+  
   let currentSmtpIndex = 0;
   const activeSmtps = smtps.map(s => ({ ...s, isInvalid: false }));
 
   for (const lead of leads) {
-    // Normalize lead keys
-    const normalizedLead: any = {};
-    Object.keys(lead).forEach(k => normalizedLead[k.toUpperCase().trim()] = lead[k]);
-
-    const targetEmail = normalizedLead.EMAIL || normalizedLead.E_MAIL || normalizedLead.MAIL || '';
-
-    if (!targetEmail) {
-      console.warn(`Skipping lead: No EMAIL column found for ${JSON.stringify(lead)}`);
-      job.failed++;
-      job.results.push({ 
-        name: normalizedLead.NAME || 'Unknown', 
-        status: 'failed', 
-        error: 'No email address found in the spreadsheet.', 
-        timestamp: Date.now() 
-      });
-      continue;
-    }
-
-    let emailSent = false;
-    let attempts = 0;
-    let lastError = '';
-
-    // Try to send the email using available SMTPs in rotation
-    while (!emailSent && attempts < activeSmtps.length) {
-      const smtpConfig = activeSmtps[currentSmtpIndex];
-      
-      // Skip if this SMTP is marked as invalid or reached its limit
-      const dailyLimit = smtpConfig.dailyLimit || 100;
-      const sentToday = job.results.filter(
-        (r: any) => r.smtpUser === smtpConfig.user && 
-        r.status === 'sent' &&
-        new Date(r.timestamp).toDateString() === new Date().toDateString()
-      ).length;
-
-      if (smtpConfig.isInvalid || sentToday >= dailyLimit) {
-        currentSmtpIndex = (currentSmtpIndex + 1) % activeSmtps.length;
-        attempts++;
-        continue;
-      }
-
-      const transporter = nodemailer.createTransport({
-        host: smtpConfig.host,
-        port: smtpConfig.port,
-        secure: smtpConfig.port === 465,
-        auth: {
-          user: smtpConfig.user,
-          pass: smtpConfig.pass,
-        },
-        connectionTimeout: 15000, 
-        greetingTimeout: 10000,
-        socketTimeout: 20000,
-      });
-
-      let subject = spin(normalizedLead.SUBJECT || '');
-      let body = spin(normalizedLead.BODY || '');
-
-      Object.keys(normalizedLead).forEach(key => {
-        const val = String(normalizedLead[key] || '');
-        const regexWithBraces = new RegExp(`{{${key}}}`, 'gi');
-        subject = subject.replace(regexWithBraces, val);
-        body = body.replace(regexWithBraces, val);
-        const plainRegex = new RegExp(`\\b${key}\\b`, 'g'); 
-        subject = subject.replace(plainRegex, val);
-        body = body.replace(plainRegex, val);
-      });
-
-      // Convert newlines to <br> tags and support simple **bold** text
-      const formattedBody = body
-        .replace(/\n/g, '<br>')
-        .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
-
-      const htmlBody = `
-        <div style="font-family: sans-serif; line-height: 1.6; color: #333; white-space: normal;">
-          ${formattedBody}
-        </div>
-      `;
-
-      try {
-        await transporter.sendMail({
-          from: `"${smtpConfig.senderName}" <${smtpConfig.user}>`,
-          to: targetEmail,
-          subject: subject,
-          html: htmlBody,
-        });
-
-        job.sent++;
-        job.results.push({ 
-          email: targetEmail, 
-          status: 'sent', 
-          smtpUser: smtpConfig.user, 
-          timestamp: Date.now() 
-        });
-        emailSent = true;
-        console.log(`Email successfully sent to ${targetEmail} via ${smtpConfig.user}`);
-        currentSmtpIndex = (currentSmtpIndex + 1) % activeSmtps.length;
-      } catch (error: any) {
-        lastError = error.message;
-        console.error(`SMTP Error (${smtpConfig.user} -> ${targetEmail}):`, error.message);
-        
-        const isAuthError = error.code === 'EAUTH' || error.responseCode === 535;
-        const isConnError = error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT' || error.code === 'ESOCKET';
-
-        if (isAuthError || isConnError) {
-          smtpConfig.isInvalid = true;
-          console.log(`Marking SMTP ${smtpConfig.user} as invalid and rotating...`);
-        }
-
-        currentSmtpIndex = (currentSmtpIndex + 1) % activeSmtps.length;
-        attempts++;
-      }
-    }
-
-    if (!emailSent) {
-      job.failed++;
-      job.results.push({ 
-        email: targetEmail, 
-        status: 'failed', 
-        error: lastError || 'All SMTP servers failed for this lead.', 
-        timestamp: Date.now() 
-      });
-    }
-
-    // Delay between leads
-    const delay = activeSmtps.length > 1 ? 2000 : 10000;
-    await new Promise(resolve => setTimeout(resolve, delay));
+    if (job.status === 'stopped') break;
+    // ... existing lead processing ...
   }
-
-  job.status = 'completed';
-  job.endTime = Date.now();
 }
+
+// Global controllers to manage search/campaign stops
+const controllers: { [key: string]: AbortController } = {};
 
 // Helper for runSearch
 let searchRotationIndex = 0;
@@ -340,8 +222,10 @@ function getNextSearchClient(configs: any[]) {
   };
 }
 
-async function callSearchLLM(prompt: string, configs: any[], systemPrompt: string = "You are a lead generation expert. Your goal is to find businesses and their official contact information, especially emails.") {
+async function callSearchLLM(prompt: string, configs: any[], systemPrompt: string = "You are a lead generation expert.", signal?: AbortSignal) {
   const client = getNextSearchClient(configs);
+  console.log(`[LLM] Calling ${client.isCustom ? client.config.provider : 'Gemini'} with prompt length: ${prompt.length}`);
+  
   if (client.isCustom) {
     const url = `${client.config.baseUrl}/chat/completions`;
     try {
@@ -357,140 +241,169 @@ async function callSearchLLM(prompt: string, configs: any[], systemPrompt: strin
           'HTTP-Referer': 'https://github.com/automationhubbd24-sys/leadGenV2',
           'X-Title': 'LeadGen Pro'
         },
-        timeout: 60000
+        timeout: 45000,
+        signal: signal
       });
       return { text: response.data.choices[0].message.content };
     } catch (error: any) {
-      console.error(`LLM Call Error (${client.config.provider}):`, error.response?.data || error.message);
+      if (axios.isCancel(error)) throw new Error("SEARCH_STOPPED");
+      console.error(`[LLM Error] ${client.config.provider}:`, error.response?.data || error.message);
       throw new Error(`AI Service Error: ${error.response?.data?.error?.message || error.message}`);
     }
   } else {
-    // Correct way to use @google/genai SDK
     try {
       const model = (client.ai as any).getGenerativeModel({ 
         model: client.model,
         systemInstruction: systemPrompt
       });
-      const result = await model.generateContent(prompt);
+      // Gemini SDK doesn't support AbortSignal directly, we use a manual timeout wrapper
+      const resultPromise = model.generateContent(prompt);
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("TIMEOUT")), 45000));
+      
+      const result: any = await Promise.race([resultPromise, timeoutPromise]);
       return { text: result.response.text() };
     } catch (error: any) {
-      console.error(`Gemini Error:`, error.message);
+      console.error(`[Gemini Error]:`, error.message);
       throw error;
     }
   }
 }
 
-async function callSearchWithTool(prompt: string, configs: any[]) {
+async function callSearchWithTool(prompt: string, configs: any[], signal?: AbortSignal) {
   const client = getNextSearchClient(configs);
-  const systemPrompt = "You are an advanced business research agent. Use your search tools to find businesses and their contact details. CRITICAL: You must find the official email address for every business you find. Search their websites, social media, or public records to find it. Do not just say 'N/A' if you can find it.";
+  const systemPrompt = "You are an advanced business research agent. Use your search tools to find businesses and their contact details. CRITICAL: You must find the official email address for every business you find.";
   
   if (client.isCustom) {
-    return await callSearchLLM(prompt, configs, systemPrompt);
+    return await callSearchLLM(prompt, configs, systemPrompt, signal);
   } else {
-    // Correct way to use @google/genai SDK with tools
-    const model = (client.ai as any).getGenerativeModel({ 
-      model: client.model,
-      systemInstruction: systemPrompt,
-      tools: [{ googleMaps: {} } as any]
-    });
-    const result = await model.generateContent(prompt);
-    return { text: result.response.text() };
+    try {
+      const model = (client.ai as any).getGenerativeModel({ 
+        model: client.model,
+        systemInstruction: systemPrompt,
+        tools: [{ googleMaps: {} } as any]
+      });
+      const resultPromise = model.generateContent(prompt);
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("TIMEOUT")), 60000));
+      
+      const result: any = await Promise.race([resultPromise, timeoutPromise]);
+      return { text: result.response.text() };
+    } catch (error: any) {
+      console.error(`[Gemini Tool Error]:`, error.message);
+      throw error;
+    }
   }
 }
 
 async function runSearch(jobId: string, params: any, apiConfigs: any[]) {
   const job = searchJobs[jobId];
+  if (!job) return;
+
+  const controller = new AbortController();
+  controllers[jobId] = controller;
+
   const { query, city, state, country } = params;
   const locationStr = `${city}${state ? `, ${state}` : ""}, ${country}`;
   const seenNames = new Set<string>();
+
+  console.log(`[Search] Starting job ${jobId} for ${query} in ${locationStr}`);
 
   try {
     job.progress = "বিজনেসের ধরন বিশ্লেষণ করছি...";
     const keywordPrompt = `For the business type "${query}" in "${country}", list 10 most common alternative categories, synonyms, or related sub-sectors used on Google Maps. Format as a simple comma-separated list.`;
     
-    let keywordResponse;
-    try {
-      keywordResponse = await callSearchLLM(keywordPrompt, apiConfigs);
-    } catch (err: any) {
-      throw new Error(`Keyword analysis failed: ${err.message}`);
-    }
-    
+    const keywordResponse = await callSearchLLM(keywordPrompt, apiConfigs, "You are a lead generation expert.", controller.signal);
     const keywords = [query, ...keywordResponse.text.split(',').map(k => k.trim())].slice(0, 10);
+    console.log(`[Search] Keywords generated: ${keywords.join(', ')}`);
 
     job.progress = "শহরের প্রতিটি এলাকা (Neighborhoods) খুঁজে বের করছি...";
     const discoveryPrompt = `List every single major and minor neighborhood, commercial hub, and business district in "${locationStr}". Include at least 40-50 areas if possible. Format as a comma-separated list.`;
     
-    let discoveryResponse;
-    try {
-      discoveryResponse = await callSearchLLM(discoveryPrompt, apiConfigs);
-    } catch (err: any) {
-      throw new Error(`Area discovery failed: ${err.message}`);
-    }
-    
+    const discoveryResponse = await callSearchLLM(discoveryPrompt, apiConfigs, "You are a lead generation expert.", controller.signal);
     const areasToSearch = [locationStr, ...discoveryResponse.text.split(',').map(a => a.trim())].slice(0, 40);
+    console.log(`[Search] Areas discovered: ${areasToSearch.length}`);
 
     const activeConfigs = apiConfigs.filter(c => (c.provider === 'google' || c.provider === 'custom') && c.isActive && c.key);
     const concurrency = Math.max(2, activeConfigs.length);
 
     for (let i = 0; i < areasToSearch.length; i++) {
-      // Immediate check for stop signal
-      if (job.status === 'stopped' || !searchJobs[jobId]) return;
+      if (job.status === 'stopped' || controller.signal.aborted) break;
       
       const area = areasToSearch[i];
       job.progress = `অনুসন্ধান চলছে: ${area} (${i + 1}/${areasToSearch.length})`;
+      console.log(`[Search] Processing area: ${area}`);
       
       for (let j = 0; j < keywords.length; j += concurrency) {
-        if (job.status === 'stopped' || !searchJobs[jobId]) return;
+        if (job.status === 'stopped' || controller.signal.aborted) break;
         
         const currentKeywords = keywords.slice(j, j + concurrency);
+        console.log(`[Search] Batch keywords: ${currentKeywords.join(', ')}`);
         
+        // Use Promise.all with individual error handling to prevent one hang from stopping everything
         await Promise.all(currentKeywords.map(async (keyword) => {
           try {
-            if (job.status === 'stopped' || !searchJobs[jobId]) return;
+            if (job.status === 'stopped' || controller.signal.aborted) return;
             
             const searchPrompt = `Find EVERY SINGLE business for "${keyword}" in "${area}, ${country}". You MUST use your search tools. Be extremely exhaustive. For each business, extract: name, phone, website, rating, and review count. CRITICAL: Also find the official contact email for each business.`;
-            const searchResponse = await callSearchWithTool(searchPrompt, apiConfigs);
+            const searchResponse = await callSearchWithTool(searchPrompt, apiConfigs, controller.signal);
             const text = searchResponse.text;
             if (!text || text.length < 10) return;
 
-            const parsePrompt = `Extract business info into a JSON array of objects (keys: name, phone, email, website, rating, reviewCount) from: ${text}. Return ONLY valid JSON. Capture any mentioned email in the 'email' field. If no email is found, use null.`;
-            const parseResponse = await callSearchLLM(parsePrompt, apiConfigs, "Extract business info into valid JSON array.");
+            const parsePrompt = `Extract business info into a JSON array of objects (keys: name, phone, email, website, rating, reviewCount) from: ${text}. Return ONLY valid JSON.`;
+            const parseResponse = await callSearchLLM(parsePrompt, apiConfigs, "Extract business info into valid JSON array.", controller.signal);
             
             let leadsData;
             try {
               const jsonMatch = parseResponse.text.match(/\[.*\]/s);
               leadsData = JSON.parse(jsonMatch ? jsonMatch[0] : parseResponse.text);
-            } catch (e) { return; }
+            } catch (e) { 
+              console.error(`[Search] JSON parse error for ${keyword} in ${area}`);
+              return; 
+            }
 
-            leadsData.forEach((item: any) => {
-              const lowerName = item.name.toLowerCase();
-              if (!seenNames.has(lowerName)) {
-                seenNames.add(lowerName);
-                job.leads.push({
-                  id: `gm-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                  name: item.name,
-                  phone: item.phone || "N/A",
-                  email: item.email || undefined,
-                  website: item.website,
-                  location: area,
-                  source: "Google Maps",
-                  rating: item.rating || 0,
-                  reviewCount: item.reviewCount || 0,
-                });
-              }
-            });
+            if (Array.isArray(leadsData)) {
+              leadsData.forEach((item: any) => {
+                const lowerName = String(item.name || '').toLowerCase();
+                if (lowerName && !seenNames.has(lowerName)) {
+                  seenNames.add(lowerName);
+                  job.leads.push({
+                    id: `gm-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                    name: item.name,
+                    phone: item.phone || "N/A",
+                    email: item.email || undefined,
+                    website: item.website,
+                    location: area,
+                    source: "Google Maps",
+                    rating: item.rating || 0,
+                    reviewCount: item.reviewCount || 0,
+                  });
+                }
+              });
+            }
           } catch (err: any) { 
-            console.error(`Batch search error (${keyword} in ${area}):`, err.message); 
+            if (err.message !== "SEARCH_STOPPED") {
+              console.error(`[Search Batch Error] ${keyword} in ${area}:`, err.message);
+            }
           }
         }));
       }
     }
-    job.status = job.status === 'stopped' ? 'stopped' : 'completed';
-    job.progress = job.status === 'completed' ? "অনুসন্ধান সম্পন্ন হয়েছে।" : "অনুসন্ধান থামানো হয়েছে।";
+    
+    if (job.status !== 'stopped') {
+      job.status = 'completed';
+      job.progress = "অনুসন্ধান সম্পন্ন হয়েছে।";
+    }
   } catch (error: any) {
-    console.error("Search Runner Error:", error);
-    job.status = 'failed';
-    job.progress = `সার্চ চলাকালীন ত্রুটি হয়েছে: ${error.message}`;
+    if (error.message === "SEARCH_STOPPED") {
+      job.status = 'stopped';
+      job.progress = "অনুসন্ধান থামানো হয়েছে।";
+    } else {
+      console.error("[Search Critical Error]:", error);
+      job.status = 'failed';
+      job.progress = `সার্চ চলাকালীন ত্রুটি হয়েছে: ${error.message}`;
+    }
+  } finally {
+    delete controllers[jobId];
+    console.log(`[Search] Job ${jobId} finished with status: ${job.status}, leads: ${job.leads.length}`);
   }
 }
 

@@ -319,7 +319,7 @@ export default function App() {
       return;
     }
 
-    const searchConfigs = apiConfigs.filter(conf => (conf.provider === 'google' || conf.provider === 'custom') && conf.isActive && conf.key);
+    const searchConfigs = apiConfigs.filter(conf => (conf.provider === 'google' || conf.provider === 'custom' || conf.provider === 'openrouter') && conf.isActive && conf.key);
 
     if (sources.google && searchConfigs.length === 0) {
       setError('Google Maps এ সার্চ করার জন্য অন্তত একটি Gemini বা SalesmanChatbot API Key প্রয়োজন।');
@@ -966,12 +966,15 @@ export default function App() {
                             value={newConfig.provider}
                             onChange={e => {
                               const p = e.target.value as LLMProvider;
-                              const m = p === 'custom' ? 'salesmanchatbot-pro' : 'gemini-2.5-flash';
+                              let m = 'gemini-2.5-flash';
+                              if (p === 'custom') m = 'salesmanchatbot-pro';
+                              if (p === 'openrouter') m = 'google/gemini-2.5-flash';
                               setNewConfig(c => ({ ...c, provider: p, model: m }));
                             }}
                           >
                             <option value="google">Google AI Studio (Gemini)</option>
                             <option value="custom">SalesmanChatbot (Branded)</option>
+                            <option value="openrouter">OpenRouter (Gemini/Any)</option>
                           </select>
                         </div>
                       </div>

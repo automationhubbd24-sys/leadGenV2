@@ -4,13 +4,13 @@ import { Lead, SearchParams, APIKeyConfig } from "../types";
 let geminiRotationIndex = 0;
 
 function getNextGeminiClient(configs: APIKeyConfig[]) {
-  const activeConfigs = configs.filter(c => (c.provider === 'google' || c.provider === 'custom') && c.isActive && c.key);
+  const activeConfigs = configs.filter(c => (c.provider === 'google' || c.provider === 'custom' || c.provider === 'openrouter') && c.isActive && c.key);
   if (activeConfigs.length === 0) throw new Error("No active API keys found.");
   
   const config = activeConfigs[geminiRotationIndex % activeConfigs.length];
   geminiRotationIndex++;
   
-  if (config.provider === 'custom') {
+  if (config.provider === 'custom' || config.provider === 'openrouter') {
     return {
       isCustom: true,
       config: config

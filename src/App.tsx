@@ -391,10 +391,11 @@ export default function App() {
 
   const handleStopSearch = async () => {
     if (!searchJob?.id) return;
+    setIsSearching(false); // UI update immediately
+    setSearchProgress('Stopping search...');
     try {
       await fetch(`/api/search/stop/${searchJob.id}`, { method: 'POST' });
-      setSearchJob(prev => ({ ...prev, status: 'stopped' }));
-      setIsSearching(false);
+      setSearchJob(null); // Clear local search job
       setSearchProgress('Search stopped.');
     } catch (err) {
       console.error('Stop search error:', err);

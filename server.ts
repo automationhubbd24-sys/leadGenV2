@@ -323,7 +323,14 @@ function getNextSearchClient(configs: any[]) {
   searchRotationIndex++;
   
   if (config.provider === 'custom' || config.provider === 'openrouter') {
-    return { isCustom: true, config: config };
+    let baseUrl = config.baseUrl;
+    if (config.provider === 'openrouter' && (!baseUrl || baseUrl.includes('salesmanchatbot'))) {
+      baseUrl = 'https://openrouter.ai/api/v1';
+    }
+    return { 
+      isCustom: true, 
+      config: { ...config, baseUrl } 
+    };
   }
 
   return {
@@ -337,24 +344,39 @@ async function callSearchLLM(prompt: string, configs: any[], systemPrompt: strin
   const client = getNextSearchClient(configs);
   if (client.isCustom) {
     const url = `${client.config.baseUrl}/chat/completions`;
-    const response = await axios.post(url, {
-      model: client.config.model,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: prompt }
-      ]
-    }, {
-      headers: { 'Authorization': `Bearer ${client.config.key}` }
-    });
-    return { text: response.data.choices[0].message.content };
+    try {
+      const response = await axios.post(url, {
+        model: client.config.model || "google/gemini-2.0-flash-001",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: prompt }
+        ]
+      }, {
+        headers: { 
+          'Authorization': `Bearer ${client.config.key}`,
+          'HTTP-Referer': 'https://github.com/automationhubbd24-sys/leadGenV2',
+          'X-Title': 'LeadGen Pro'
+        },
+        timeout: 60000
+      });
+      return { text: response.data.choices[0].message.content };
+    } catch (error: any) {
+      console.error(`LLM Call Error (${client.config.provider}):`, error.response?.data || error.message);
+      throw new Error(`AI Service Error: ${error.response?.data?.error?.message || error.message}`);
+    }
   } else {
     // Correct way to use @google/genai SDK
-    const model = (client.ai as any).getGenerativeModel({ 
-      model: client.model,
-      systemInstruction: systemPrompt
-    });
-    const result = await model.generateContent(prompt);
-    return { text: result.response.text() };
+    try {
+      const model = (client.ai as any).getGenerativeModel({ 
+        model: client.model,
+        systemInstruction: systemPrompt
+      });
+      const result = await model.generateContent(prompt);
+      return { text: result.response.text() };
+    } catch (error: any) {
+      console.error(`Gemini Error:`, error.message);
+      throw error;
+    }
   }
 }
 

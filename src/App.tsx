@@ -187,11 +187,15 @@ export default function App() {
         try {
           const res = await fetch(`/api/search/status/${searchJob.id}`);
           const data = await res.json();
+          console.log('[Poll] Search status:', data.status, 'Leads:', data.leads?.length);
           setSearchJob(data);
           
           if (data.leads && data.leads.length > 0) {
             setLeads(prev => {
               const newLeads = data.leads.filter((nl: Lead) => !prev.some(pl => pl.name === nl.name));
+              if (newLeads.length > 0) {
+                console.log('[Poll] Adding new leads:', newLeads.length);
+              }
               return [...prev, ...newLeads];
             });
           }

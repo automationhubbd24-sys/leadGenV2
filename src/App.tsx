@@ -200,6 +200,9 @@ export default function App() {
 
           if (data.status !== 'running') {
             setIsSearching(false);
+            if (data.status === 'failed') {
+              setError(data.progress);
+            }
             setSearchProgress('');
             clearInterval(interval);
           }

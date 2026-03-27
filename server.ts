@@ -407,29 +407,48 @@ async function runSearch(jobId: string, params: any, apiConfigs: any[]) {
   try {
     job.progress = "বিজনেসের ধরন বিশ্লেষণ করছি...";
     const keywordPrompt = `For the business type "${query}" in "${country}", list 10 most common alternative categories, synonyms, or related sub-sectors used on Google Maps. Format as a simple comma-separated list.`;
-    const keywordResponse = await callSearchLLM(keywordPrompt, apiConfigs);
+    
+    let keywordResponse;
+    try {
+      keywordResponse = await callSearchLLM(keywordPrompt, apiConfigs);
+    } catch (err: any) {
+      throw new Error(`Keyword analysis failed: ${err.message}`);
+    }
+    
     const keywords = [query, ...keywordResponse.text.split(',').map(k => k.trim())].slice(0, 10);
 
     job.progress = "শহরের প্রতিটি এলাকা (Neighborhoods) খুঁজে বের করছি...";
     const discoveryPrompt = `List every single major and minor neighborhood, commercial hub, and business district in "${locationStr}". Include at least 40-50 areas if possible. Format as a comma-separated list.`;
-    const discoveryResponse = await callSearchLLM(discoveryPrompt, apiConfigs);
+    
+    let discoveryResponse;
+    try {
+      discoveryResponse = await callSearchLLM(discoveryPrompt, apiConfigs);
+    } catch (err: any) {
+      throw new Error(`Area discovery failed: ${err.message}`);
+    }
+    
     const areasToSearch = [locationStr, ...discoveryResponse.text.split(',').map(a => a.trim())].slice(0, 40);
 
     const activeConfigs = apiConfigs.filter(c => (c.provider === 'google' || c.provider === 'custom') && c.isActive && c.key);
     const concurrency = Math.max(2, activeConfigs.length);
 
     for (let i = 0; i < areasToSearch.length; i++) {
-      if (job.status === 'stopped') break;
+      // Immediate check for stop signal
+      if (job.status === 'stopped' || !searchJobs[jobId]) return;
+      
       const area = areasToSearch[i];
       job.progress = `অনুসন্ধান চলছে: ${area} (${i + 1}/${areasToSearch.length})`;
       
       for (let j = 0; j < keywords.length; j += concurrency) {
-        if (job.status === 'stopped') break;
+        if (job.status === 'stopped' || !searchJobs[jobId]) return;
+        
         const currentKeywords = keywords.slice(j, j + concurrency);
         
         await Promise.all(currentKeywords.map(async (keyword) => {
           try {
-            const searchPrompt = `Find EVERY SINGLE business for "${keyword}" in "${area}, ${country}". You MUST use your search tools. Be extremely exhaustive. For each business, extract: name, phone, website, rating, and review count. CRITICAL: Also find the official contact email for each business. If you cannot find it directly on Google Maps, use your search tools to check their website or social media pages.`;
+            if (job.status === 'stopped' || !searchJobs[jobId]) return;
+            
+            const searchPrompt = `Find EVERY SINGLE business for "${keyword}" in "${area}, ${country}". You MUST use your search tools. Be extremely exhaustive. For each business, extract: name, phone, website, rating, and review count. CRITICAL: Also find the official contact email for each business.`;
             const searchResponse = await callSearchWithTool(searchPrompt, apiConfigs);
             const text = searchResponse.text;
             if (!text || text.length < 10) return;
@@ -460,7 +479,9 @@ async function runSearch(jobId: string, params: any, apiConfigs: any[]) {
                 });
               }
             });
-          } catch (err) { console.error("Batch search error:", err.message); }
+          } catch (err: any) { 
+            console.error(`Batch search error (${keyword} in ${area}):`, err.message); 
+          }
         }));
       }
     }
@@ -469,7 +490,7 @@ async function runSearch(jobId: string, params: any, apiConfigs: any[]) {
   } catch (error: any) {
     console.error("Search Runner Error:", error);
     job.status = 'failed';
-    job.progress = `ত্রুটি: ${error.message}`;
+    job.progress = `সার্চ চলাকালীন ত্রুটি হয়েছে: ${error.message}`;
   }
 }
 

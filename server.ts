@@ -348,7 +348,8 @@ async function callSearchLLM(prompt: string, configs: any[], systemPrompt: strin
     });
     return { text: response.data.choices[0].message.content };
   } else {
-    const model = client.ai.getGenerativeModel({ 
+    // Correct way to use @google/genai SDK
+    const model = (client.ai as any).getGenerativeModel({ 
       model: client.model,
       systemInstruction: systemPrompt
     });
@@ -364,7 +365,8 @@ async function callSearchWithTool(prompt: string, configs: any[]) {
   if (client.isCustom) {
     return await callSearchLLM(prompt, configs, systemPrompt);
   } else {
-    const model = client.ai.getGenerativeModel({ 
+    // Correct way to use @google/genai SDK with tools
+    const model = (client.ai as any).getGenerativeModel({ 
       model: client.model,
       systemInstruction: systemPrompt,
       tools: [{ googleMaps: {} } as any]

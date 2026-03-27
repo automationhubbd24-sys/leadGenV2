@@ -482,22 +482,21 @@ async function runSearch(jobId: string, params: any, apiConfigs: any[]) {
   const locationStr = `${city}${state ? `, ${state}` : ""}, ${country}`;
   const seenNames = new Set<string>();
 
-  console.log(`[Search] Starting job ${jobId} for ${query} in ${locationStr}`);
+  console.log(`[Search] Starting Fast Search job ${jobId} for ${query} in ${locationStr}`);
 
   try {
-    job.progress = "বিজনেসের ধরন বিশ্লেষণ করছি...";
-    const keywordPrompt = `For the business type "${query}" in "${country}", list 10 most common alternative categories, synonyms, or related sub-sectors used on Google Maps. Format as a simple comma-separated list.`;
+    // Phase 1: Direct Exhaustive Search (Reduced steps for speed)
+    job.progress = "অনুসন্ধান শুরু হচ্ছে...";
     
+    // We only do one round of keyword expansion to keep it fast
+    const keywordPrompt = `List 5 most common alternative search terms for "${query}" on Google Maps in "${country}". Format: comma-separated.`;
     const keywordResponse = await callSearchLLM(keywordPrompt, apiConfigs, "You are a lead generation expert.", controller.signal, jobId);
-    const keywords = [query, ...keywordResponse.text.split(',').map(k => k.trim())].slice(0, 10);
-    console.log(`[Search] Keywords generated: ${keywords.join(', ')}`);
+    const keywords = [query, ...keywordResponse.text.split(',').map(k => k.trim())].slice(0, 5);
 
-    job.progress = "শহরের প্রতিটি এলাকা (Neighborhoods) খুঁজে বের করছি...";
-    const discoveryPrompt = `List every single major and minor neighborhood, commercial hub, and business district in "${locationStr}". Include at least 40-50 areas if possible. Format as a comma-separated list.`;
-    
-    const discoveryResponse = await callSearchLLM(discoveryPrompt, apiConfigs, "You are a lead generation expert.", controller.signal, jobId);
-    const areasToSearch = [locationStr, ...discoveryResponse.text.split(',').map(a => a.trim())].slice(0, 40);
-    console.log(`[Search] Areas discovered: ${areasToSearch.length}`);
+    // Instead of 40-50 areas, we focus on the main city and 10 major neighborhoods for speed
+    const areaPrompt = `List 10 major business districts or neighborhoods in "${locationStr}". Format: comma-separated.`;
+    const areaResponse = await callSearchLLM(areaPrompt, apiConfigs, "You are a lead generation expert.", controller.signal, jobId);
+    const areasToSearch = [locationStr, ...areaResponse.text.split(',').map(a => a.trim())].slice(0, 11);
 
     const activeConfigs = apiConfigs.filter(c => (c.provider === 'google' || c.provider === 'custom') && c.isActive && c.key);
     const concurrency = Math.max(2, activeConfigs.length);
@@ -507,35 +506,29 @@ async function runSearch(jobId: string, params: any, apiConfigs: any[]) {
       
       const area = areasToSearch[i];
       job.progress = `অনুসন্ধান চলছে: ${area} (${i + 1}/${areasToSearch.length})`;
-      console.log(`[Search] Processing area: ${area}`);
       
       for (let j = 0; j < keywords.length; j += concurrency) {
         if (job.status === 'stopped' || controller.signal.aborted) break;
-        
         const currentKeywords = keywords.slice(j, j + concurrency);
-        console.log(`[Search] Batch keywords: ${currentKeywords.join(', ')}`);
         
-        // Use Promise.all with individual error handling to prevent one hang from stopping everything
         await Promise.all(currentKeywords.map(async (keyword) => {
           try {
             if (job.status === 'stopped' || controller.signal.aborted) return;
             
-            const searchPrompt = `Find EVERY SINGLE business for "${keyword}" in "${area}, ${country}". You MUST use your search tools. Be extremely exhaustive. For each business, extract: name, phone, website, rating, and review count. CRITICAL: Also find the official contact email for each business.`;
-            const searchResponse = await callSearchWithTool(searchPrompt, apiConfigs, controller.signal, jobId);
+            // COMBINED PROMPT: Search and Extract in ONE GO to save API calls and time
+            const combinedPrompt = `Search for "${keyword}" in "${area}, ${country}" using your tools. 
+            IMMEDIATELY return the results as a JSON array of objects with keys: name, phone, email, website, rating, reviewCount. 
+            Find official emails if possible. Return ONLY the JSON array.`;
+
+            const searchResponse = await callSearchWithTool(combinedPrompt, apiConfigs, controller.signal, jobId);
             const text = searchResponse.text;
             if (!text || text.length < 10) return;
 
-            const parsePrompt = `Extract business info into a JSON array of objects (keys: name, phone, email, website, rating, reviewCount) from: ${text}. Return ONLY valid JSON.`;
-            const parseResponse = await callSearchLLM(parsePrompt, apiConfigs, "Extract business info into valid JSON array.", controller.signal, jobId);
-            
             let leadsData;
             try {
-              const jsonMatch = parseResponse.text.match(/\[.*\]/s);
-              leadsData = JSON.parse(jsonMatch ? jsonMatch[0] : parseResponse.text);
-            } catch (e) { 
-              console.error(`[Search] JSON parse error for ${keyword} in ${area}`);
-              return; 
-            }
+              const jsonMatch = text.match(/\[.*\]/s);
+              leadsData = JSON.parse(jsonMatch ? jsonMatch[0] : text);
+            } catch (e) { return; }
 
             if (Array.isArray(leadsData)) {
               leadsData.forEach((item: any) => {

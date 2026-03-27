@@ -196,6 +196,10 @@ export default function App() {
             });
           }
 
+          if (data.stats) {
+            setStats(data.stats);
+          }
+
           setSearchProgress(data.progress);
 
           if (data.status !== 'running') {
@@ -371,6 +375,7 @@ export default function App() {
     setIsSearching(true);
     setSearchProgress('সার্চ শুরু হচ্ছে...');
     setError(null);
+    setStats({ apiCalls: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0 });
 
     try {
       const res = await fetch('/api/search/start', {

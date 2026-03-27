@@ -78,7 +78,13 @@ async function startServer() {
       progress: 'Starting search...',
       leads: [],
       startTime: Date.now(),
-      params
+      params,
+      stats: {
+        apiCalls: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0
+      }
     };
 
     res.json({ jobId, message: 'Search started successfully.' });
@@ -364,7 +370,7 @@ function getNextSearchClient(configs: any[]) {
   };
 }
 
-async function callSearchLLM(prompt: string, configs: any[], systemPrompt: string = "You are a lead generation expert.", signal?: AbortSignal) {
+async function callSearchLLM(prompt: string, configs: any[], systemPrompt: string = "You are a lead generation expert.", signal?: AbortSignal, jobId?: string) {
   const client = getNextSearchClient(configs);
   console.log(`[LLM] Calling ${client.isCustom ? client.config.provider : 'Gemini'} with prompt length: ${prompt.length}`);
   
@@ -378,13 +384,23 @@ async function callSearchLLM(prompt: string, configs: any[], systemPrompt: strin
           { role: "user", content: prompt }
         ]
       }, {
-        headers: { 
+        headers: {
           'Authorization': `Bearer ${client.config.key}`,
           'HTTP-Referer': 'https://github.com/automationhubbd24-sys/leadGenV2',
           'X-Title': 'LeadGen Pro'
         },
         signal: signal
       });
+
+      // Update stats if jobId provided
+      if (jobId && searchJobs[jobId] && response.data.usage) {
+        const usage = response.data.usage;
+        searchJobs[jobId].stats.apiCalls++;
+        searchJobs[jobId].stats.inputTokens += (usage.prompt_tokens || 0);
+        searchJobs[jobId].stats.outputTokens += (usage.completion_tokens || 0);
+        searchJobs[jobId].stats.totalTokens += (usage.total_tokens || 0);
+      }
+
       return { text: response.data.choices[0].message.content };
     } catch (error: any) {
       if (axios.isCancel(error)) throw new Error("SEARCH_STOPPED");
@@ -402,6 +418,16 @@ async function callSearchLLM(prompt: string, configs: any[], systemPrompt: strin
       const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("TIMEOUT")), 45000));
       
       const result: any = await Promise.race([resultPromise, timeoutPromise]);
+      
+      // Update stats for Gemini
+      if (jobId && searchJobs[jobId] && result.response.usageMetadata) {
+        const usage = result.response.usageMetadata;
+        searchJobs[jobId].stats.apiCalls++;
+        searchJobs[jobId].stats.inputTokens += (usage.promptTokenCount || 0);
+        searchJobs[jobId].stats.outputTokens += (usage.candidatesTokenCount || 0);
+        searchJobs[jobId].stats.totalTokens += (usage.totalTokenCount || 0);
+      }
+
       return { text: result.response.text() };
     } catch (error: any) {
       console.error(`[Gemini Error]:`, error.message);
@@ -410,12 +436,12 @@ async function callSearchLLM(prompt: string, configs: any[], systemPrompt: strin
   }
 }
 
-async function callSearchWithTool(prompt: string, configs: any[], signal?: AbortSignal) {
+async function callSearchWithTool(prompt: string, configs: any[], signal?: AbortSignal, jobId?: string) {
   const client = getNextSearchClient(configs);
   const systemPrompt = "You are an advanced business research agent. Use your search tools to find businesses and their contact details. CRITICAL: You must find the official email address for every business you find.";
   
   if (client.isCustom) {
-    return await callSearchLLM(prompt, configs, systemPrompt, signal);
+    return await callSearchLLM(prompt, configs, systemPrompt, signal, jobId);
   } else {
     try {
       const model = (client.ai as any).getGenerativeModel({ 
@@ -427,6 +453,16 @@ async function callSearchWithTool(prompt: string, configs: any[], signal?: Abort
       const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("TIMEOUT")), 60000));
       
       const result: any = await Promise.race([resultPromise, timeoutPromise]);
+
+      // Update stats for Gemini with Tools
+      if (jobId && searchJobs[jobId] && result.response.usageMetadata) {
+        const usage = result.response.usageMetadata;
+        searchJobs[jobId].stats.apiCalls++;
+        searchJobs[jobId].stats.inputTokens += (usage.promptTokenCount || 0);
+        searchJobs[jobId].stats.outputTokens += (usage.candidatesTokenCount || 0);
+        searchJobs[jobId].stats.totalTokens += (usage.totalTokenCount || 0);
+      }
+
       return { text: result.response.text() };
     } catch (error: any) {
       console.error(`[Gemini Tool Error]:`, error.message);
@@ -452,14 +488,14 @@ async function runSearch(jobId: string, params: any, apiConfigs: any[]) {
     job.progress = "বিজনেসের ধরন বিশ্লেষণ করছি...";
     const keywordPrompt = `For the business type "${query}" in "${country}", list 10 most common alternative categories, synonyms, or related sub-sectors used on Google Maps. Format as a simple comma-separated list.`;
     
-    const keywordResponse = await callSearchLLM(keywordPrompt, apiConfigs, "You are a lead generation expert.", controller.signal);
+    const keywordResponse = await callSearchLLM(keywordPrompt, apiConfigs, "You are a lead generation expert.", controller.signal, jobId);
     const keywords = [query, ...keywordResponse.text.split(',').map(k => k.trim())].slice(0, 10);
     console.log(`[Search] Keywords generated: ${keywords.join(', ')}`);
 
     job.progress = "শহরের প্রতিটি এলাকা (Neighborhoods) খুঁজে বের করছি...";
     const discoveryPrompt = `List every single major and minor neighborhood, commercial hub, and business district in "${locationStr}". Include at least 40-50 areas if possible. Format as a comma-separated list.`;
     
-    const discoveryResponse = await callSearchLLM(discoveryPrompt, apiConfigs, "You are a lead generation expert.", controller.signal);
+    const discoveryResponse = await callSearchLLM(discoveryPrompt, apiConfigs, "You are a lead generation expert.", controller.signal, jobId);
     const areasToSearch = [locationStr, ...discoveryResponse.text.split(',').map(a => a.trim())].slice(0, 40);
     console.log(`[Search] Areas discovered: ${areasToSearch.length}`);
 
@@ -485,12 +521,12 @@ async function runSearch(jobId: string, params: any, apiConfigs: any[]) {
             if (job.status === 'stopped' || controller.signal.aborted) return;
             
             const searchPrompt = `Find EVERY SINGLE business for "${keyword}" in "${area}, ${country}". You MUST use your search tools. Be extremely exhaustive. For each business, extract: name, phone, website, rating, and review count. CRITICAL: Also find the official contact email for each business.`;
-            const searchResponse = await callSearchWithTool(searchPrompt, apiConfigs, controller.signal);
+            const searchResponse = await callSearchWithTool(searchPrompt, apiConfigs, controller.signal, jobId);
             const text = searchResponse.text;
             if (!text || text.length < 10) return;
 
             const parsePrompt = `Extract business info into a JSON array of objects (keys: name, phone, email, website, rating, reviewCount) from: ${text}. Return ONLY valid JSON.`;
-            const parseResponse = await callSearchLLM(parsePrompt, apiConfigs, "Extract business info into valid JSON array.", controller.signal);
+            const parseResponse = await callSearchLLM(parsePrompt, apiConfigs, "Extract business info into valid JSON array.", controller.signal, jobId);
             
             let leadsData;
             try {

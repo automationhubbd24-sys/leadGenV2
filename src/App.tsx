@@ -184,7 +184,7 @@ export default function App() {
         id: `${Date.now()}-${index}`,
         provider: newConfig.provider,
         model: newConfig.model,
-        label: newConfig.provider === 'google' ? 'Google AI' : 'SalesmanChatbot',
+        label: newConfig.provider === 'google' ? 'Google AI' : (newConfig.provider === 'openrouter' ? 'OpenRouter' : 'SalesmanChatbot'),
         key: k,
         isActive: true,
         baseUrl: newConfig.baseUrl
@@ -322,7 +322,7 @@ export default function App() {
     const searchConfigs = apiConfigs.filter(conf => (conf.provider === 'google' || conf.provider === 'custom' || conf.provider === 'openrouter') && conf.isActive && conf.key);
 
     if (sources.google && searchConfigs.length === 0) {
-      setError('Google Maps এ সার্চ করার জন্য অন্তত একটি Gemini বা SalesmanChatbot API Key প্রয়োজন।');
+      setError('Google Maps এ সার্চ করার জন্য অন্তত একটি Gemini, SalesmanChatbot বা OpenRouter API Key প্রয়োজন।');
       setShowSettings(true);
       return;
     }

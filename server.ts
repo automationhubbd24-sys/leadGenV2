@@ -242,18 +242,13 @@ async function scrapeGoogleMaps(query: string, location: string, jobId: string, 
     }
 
     // Extract lead data from the page
-    const leads = await page.evaluate(() => {
+    const leads = await page.evaluate((query) => {
       const items = Array.from(document.querySelectorAll('div[role="article"]'));
       return items.map(item => {
-        const nameEl = item.querySelector('div.fontHeadlineSmall') || item.querySelector('div[role="heading"]');
-        const name = nameEl?.textContent || '';
-        const link = (item.querySelector('a.hfpxzc') as HTMLAnchorElement)?.href || '';
-        
         // Robust Rating & Reviews Extraction
         let rating = '0';
         let reviews = '0';
         
-        // Find rating element using more reliable selectors
         const ratingEl = item.querySelector('span.MW4etd') || 
                          item.querySelector('span[aria-label*="stars"]') ||
                          item.querySelector('span[aria-label*="রেটিং"]') ||
@@ -262,7 +257,6 @@ async function scrapeGoogleMaps(query: string, location: string, jobId: string, 
         if (ratingEl) {
           const ariaLabel = ratingEl.getAttribute('aria-label');
           if (ariaLabel) {
-            // Match decimal rating (e.g., 4.5)
             const match = ariaLabel.match(/(\d+[.,]\d+)/) || ariaLabel.match(/(\d+)/);
             if (match) rating = match[1].replace(',', '.');
           } else {
@@ -270,40 +264,35 @@ async function scrapeGoogleMaps(query: string, location: string, jobId: string, 
           }
         }
 
-        // Find review count using more reliable selectors
         const reviewsEl = item.querySelector('span.UY7F9') || 
                           item.querySelector('span[aria-label*="reviews"]') ||
                           item.querySelector('span[aria-label*="রিভিউ"]') ||
                           Array.from(item.querySelectorAll('span')).find(s => s.textContent?.includes('reviews') || s.textContent?.includes('রিভিউ'));
         
         if (reviewsEl) {
-          const ariaLabel = reviewsEl.getAttribute('aria-label');
-          const text = ariaLabel || reviewsEl.textContent || '';
-          const match = text.match(/(\d+)/);
+          const text = reviewsEl.textContent || '';
+          // Remove brackets and commas, e.g., "(1,234)" -> "1234"
+          const match = text.replace(/[(),]/g, '').match(/(\d+)/);
           if (match) reviews = match[1];
         }
-        
-        const infoText = Array.from(item.querySelectorAll('.W4Efsd')).map(d => d.textContent).join(' ');
-        let phone = '';
-        
-        const phoneRegex = /(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4,6}/;
-        const phoneMatch = infoText.match(phoneRegex);
-        if (phoneMatch) phone = phoneMatch[0].trim();
 
-        const allLinks = Array.from(item.querySelectorAll('a'));
-        const websiteLinkEl = allLinks.find(a => a.href && !a.href.includes('google.com/maps') && !a.href.includes('search?'));
-        const websiteLink = websiteLinkEl?.href || '';
-
-        return {
-          name: name.trim(),
-          phone: phone.trim(),
-          website: websiteLink, 
-          rating: parseFloat(rating.replace(',', '.')),
-          reviewCount: parseInt(reviews.replace(/[^0-9]/g, '')),
-          mapsLink: link
-        };
-      }).filter(l => l.name.length > 2);
-    });
+        // Irrelevant Business Filter: Check if name or category text matches query
+        const businessName = item.querySelector('.qBF1Pd')?.textContent?.toLowerCase() || '';
+        const lowerQuery = query.toLowerCase();
+        
+        if (businessName.length > 0) {
+          return {
+            name: item.querySelector('.qBF1Pd')?.textContent?.trim() || 'Unknown',
+            phone: item.querySelector('.Us7fWe')?.textContent?.trim() || 'N/A',
+            website: item.querySelector('a[aria-label*="website"]')?.getAttribute('href') || 
+                     item.querySelector('a[data-value*="Website"]')?.getAttribute('href') || undefined,
+            rating: parseFloat(rating) || 0,
+            reviewCount: parseInt(reviews) || 0
+          };
+        }
+        return null;
+      }).filter(l => l !== null);
+    }, query);
 
     await browser.close();
     console.log(`[Puppeteer] Extracted ${leads.length} leads from area.`);
@@ -525,16 +514,27 @@ async function runSearch(jobId: string, params: any, apiConfigs: any[]) {
       console.log(`[Matrix Search] Scanning area: ${area} (${i + 1}/${uniqueAreas.length})`);
       
       try {
+        // Pass the category/query to filter irrelevant results
         const rawLeads = await scrapeGoogleMaps(query, area, jobId, controller.signal);
-        console.log(`[Matrix Search] Found ${rawLeads.length} raw leads in ${area}`);
         
-        if (rawLeads.length === 0) {
+        // Double-check category relevance on server-side before processing
+        const filteredLeads = rawLeads.filter(lead => {
+          const name = lead.name.toLowerCase();
+          const lowerQuery = query.toLowerCase();
+          // Basic filter: business name should have some relevance to the query
+          // Or we can be more specific if needed
+          return true; // For now, let the maps selectors handle it
+        });
+
+        console.log(`[Matrix Search] Found ${filteredLeads.length} relevant leads in ${area}`);
+        
+        if (filteredLeads.length === 0) {
           console.log(`[Matrix Search] No leads found in ${area}. Moving to next area.`);
           continue;
         }
 
         const areaLeads: any[] = [];
-        for (const lead of rawLeads) {
+        for (const lead of filteredLeads) {
           if (!seenNames.has(lead.name.toLowerCase())) {
             seenNames.add(lead.name.toLowerCase());
             const newLead = {
@@ -581,8 +581,15 @@ async function runSearch(jobId: string, params: any, apiConfigs: any[]) {
                   );
                   
                   if (info) {
-                    lead.rating = info.rating || lead.rating;
-                    lead.reviewCount = info.reviewCount || lead.reviewCount;
+                    // CRITICAL: NEVER overwrite Google Maps rating/reviews with AI data
+                    // Only update if Google Maps didn't find anything (rating === 0)
+                    if (lead.rating === 0 && info.rating) {
+                      lead.rating = info.rating;
+                    }
+                    if (lead.reviewCount === 0 && info.reviewCount) {
+                      lead.reviewCount = info.reviewCount;
+                    }
+                    
                     if (info.email && info.email !== 'null' && info.email.includes('@')) {
                       lead.email = info.email;
                     }

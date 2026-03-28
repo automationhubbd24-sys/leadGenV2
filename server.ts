@@ -58,7 +58,12 @@ async function scrapeEmailsFromWebsite(url: string, signal?: AbortSignal) {
   
   const executablePaths = [
     'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe'
+    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+    '/usr/bin/google-chrome',
+    '/usr/bin/chromium-browser',
+    '/usr/bin/chromium',
+    process.env.PUPPETEER_EXECUTABLE_PATH || '',
+    process.env.CHROME_PATH || ''
   ];
 
   let browser;
@@ -149,10 +154,14 @@ async function scrapeEmailsFromWebsite(url: string, signal?: AbortSignal) {
 async function scrapeGoogleMaps(query: string, location: string, jobId: string, signal?: AbortSignal) {
   console.log(`[Puppeteer] Starting scrape for "${query}" in "${location}"...`);
   
-  // Try common paths for Chrome on Windows
+  // Try common paths for Chrome on Windows and Linux
   const executablePaths = [
     'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
     'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+    '/usr/bin/google-chrome',
+    '/usr/bin/chromium-browser',
+    '/usr/bin/chromium',
+    process.env.PUPPETEER_EXECUTABLE_PATH || '',
     process.env.CHROME_PATH || ''
   ].filter(p => p !== '');
 

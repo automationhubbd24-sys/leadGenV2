@@ -192,11 +192,38 @@ export default function App() {
           
           if (data.leads && data.leads.length > 0) {
             setLeads(prev => {
-              const newLeads = data.leads.filter((nl: Lead) => !prev.some(pl => pl.name === nl.name));
-              if (newLeads.length > 0) {
-                console.log('[Poll] Adding new leads:', newLeads.length);
-              }
-              return [...prev, ...newLeads];
+              // Create a map of existing leads by name for fast lookup
+              const existingLeadsMap = new Map(prev.map(l => [l.name, l]));
+              let hasChanged = false;
+
+              const updatedLeads = data.leads.map((nl: Lead) => {
+                const existing = existingLeadsMap.get(nl.name);
+                if (existing) {
+                  // If info has changed, mark as changed
+                  if (existing.email !== nl.email || 
+                      existing.rating !== nl.rating || 
+                      existing.reviewCount !== nl.reviewCount ||
+                      existing.isEnriching !== nl.isEnriching) {
+                    hasChanged = true;
+                    return { ...existing, ...nl };
+                  }
+                  return existing;
+                }
+                // It's a brand new lead
+                hasChanged = true;
+                return nl;
+              });
+
+              // Also include any leads that were in prev but not in data (though unlikely in current setup)
+              const finalLeads = [...updatedLeads];
+              prev.forEach(pl => {
+                if (!data.leads.some((nl: Lead) => nl.name === pl.name)) {
+                  finalLeads.push(pl);
+                  hasChanged = true;
+                }
+              });
+
+              return hasChanged ? finalLeads : prev;
             });
           }
 
@@ -786,19 +813,6 @@ export default function App() {
                     <Loader2 className="w-4 h-4 text-blue-500 animate-spin shrink-0" />
                     <p className="text-xs text-blue-700 font-bold uppercase tracking-wider">{searchProgress}</p>
                   </div>
-                  
-                  {stats.apiCalls > 0 && (
-                    <div className="pt-3 border-t border-blue-200 grid grid-cols-2 gap-2">
-                      <div className="bg-white/50 p-2 rounded-lg">
-                        <p className="text-[10px] text-blue-600 uppercase font-bold tracking-tight">AI Calls</p>
-                        <p className="text-sm font-black text-blue-900">{stats.apiCalls}</p>
-                      </div>
-                      <div className="bg-white/50 p-2 rounded-lg">
-                        <p className="text-[10px] text-blue-600 uppercase font-bold tracking-tight">Total Tokens</p>
-                        <p className="text-sm font-black text-blue-900">{stats.totalTokens.toLocaleString()}</p>
-                      </div>
-                    </div>
-                  )}
                 </div>
               )}
 
@@ -843,9 +857,9 @@ export default function App() {
                 </div>
               )}
 
-              <div className="bg-white rounded-2xl shadow-sm border border-black/5 overflow-hidden">
+              <div className="bg-white rounded-2xl shadow-sm border border-black/5 overflow-hidden flex flex-col h-[calc(100vh-280px)]">
                 {leads.length === 0 && !isSearching ? (
-                  <div className="py-32 flex flex-col items-center justify-center text-center px-6">
+                  <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
                     <div className="w-16 h-16 bg-[#F1F3F5] rounded-full flex items-center justify-center mb-6">
                       <Building2 className="w-8 h-8 text-black/20" />
                     </div>
@@ -853,10 +867,10 @@ export default function App() {
                     <p className="text-sm text-black/40 max-w-xs">Enter your search criteria on the left to start generating leads from Maps and Yelp.</p>
                   </div>
                 ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left border-collapse">
-                      <thead>
-                        <tr className="bg-[#F1F3F5]/50 border-b border-black/5">
+                  <div className="overflow-auto flex-1 custom-scrollbar">
+                    <table className="w-full text-left border-collapse relative">
+                      <thead className="sticky top-0 z-10 bg-[#F1F3F5]/95 backdrop-blur-sm shadow-sm">
+                        <tr className="border-b border-black/5">
                           <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-black/40">Business Name</th>
                           <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-black/40">Rating & Reviews</th>
                           <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-black/40">Contact Info</th>
@@ -879,7 +893,7 @@ export default function App() {
                                 <span className="text-sm font-bold text-black">{lead.name}</span>
                               </td>
                               <td className="px-6 py-5">
-                                {lead.rating ? (
+                                {typeof lead.rating === 'number' ? (
                                   <div className="flex flex-col gap-1">
                                     <div className="flex items-center gap-1 text-xs font-bold text-yellow-600">
                                       <Star className="w-3.5 h-3.5 fill-current" />
@@ -904,10 +918,15 @@ export default function App() {
                                     ) : (
                                       <button 
                                         onClick={() => enrichLead(lead.id)}
-                                        disabled={isEnriching === lead.id}
+                                        disabled={isEnriching === lead.id || lead.isEnriching}
                                         className="text-[10px] uppercase tracking-wider font-bold text-black/30 hover:text-black transition-colors"
                                       >
-                                        {isEnriching === lead.id ? 'Finding...' : 'Find Email'}
+                                        {isEnriching === lead.id || lead.isEnriching ? (
+                                          <span className="flex items-center gap-1">
+                                            <Loader2 className="w-3 h-3 animate-spin" />
+                                            Finding...
+                                          </span>
+                                        ) : 'Find Email'}
                                       </button>
                                     )}
                                   </div>

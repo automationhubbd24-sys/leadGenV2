@@ -8,6 +8,7 @@ export interface Lead {
   website?: string;
   rating?: number;
   reviewCount?: number;
+  isEnriching?: boolean;
 }
 
 export interface SearchParams {

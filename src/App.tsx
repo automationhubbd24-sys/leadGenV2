@@ -127,7 +127,7 @@ export default function App() {
   const [campaignPreview, setCampaignPreview] = useState<any[]>([]);
   const [campaignError, setCampaignError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [job, setJob] = useState<any>(null);
+  const [job, setJob] = useStickyState<any>(null, 'campaignJob');
   const [isCampaignRunning, setIsCampaignRunning] = useState(false);
 
   // Search Job State
@@ -160,12 +160,13 @@ export default function App() {
   // Poll for campaign status
   useEffect(() => {
     if (job?.id && job.status === 'running') {
+      setIsCampaignRunning(true);
       const interval = setInterval(async () => {
         try {
           const res = await fetch(`/api/campaign/status/${job.id}`);
           const data = await res.json();
           setJob(data);
-          if (data.status === 'completed') {
+          if (data.status !== 'running') {
             setIsCampaignRunning(false);
             clearInterval(interval);
           }
@@ -176,8 +177,10 @@ export default function App() {
         }
       }, 5000);
       return () => clearInterval(interval);
+    } else if (job?.status === 'running') {
+      setIsCampaignRunning(true);
     }
-  }, [job]);
+  }, [job?.id, job?.status]);
 
   // Poll for search status
   useEffect(() => {
@@ -378,6 +381,16 @@ export default function App() {
     } catch (err) {
       setCampaignError('An unexpected error occurred.');
       setIsCampaignRunning(false);
+    }
+  };
+
+  const handleStopCampaign = async () => {
+    if (!job?.id) return;
+    setIsCampaignRunning(false);
+    try {
+      await fetch(`/api/campaign/stop/${job.id}`, { method: 'POST' });
+    } catch (err) {
+      console.error('Stop campaign error:', err);
     }
   };
 
@@ -978,6 +991,7 @@ export default function App() {
             fileInputRef={fileInputRef}
             handleFileChange={handleFileChange}
             handleStartCampaign={handleStartCampaign}
+            handleStopCampaign={handleStopCampaign}
           />
         )}
       </main>
@@ -1300,12 +1314,12 @@ export default function App() {
   );
 }
 
-function BulkEmailUI({ job, isCampaignRunning, campaignFile, campaignPreview, campaignError, fileInputRef, handleFileChange, handleStartCampaign }: any) {
-  const progress = job ? (job.sent + job.failed) / job.total * 100 : 0;
+function BulkEmailUI({ job, isCampaignRunning, campaignFile, campaignPreview, campaignError, fileInputRef, handleFileChange, handleStartCampaign, handleStopCampaign }: any) {
+  const progress = job ? Math.round(((job.sent + job.failed) / job.total) * 100) : 0;
 
   return (
-    <div className="max-w-4xl mx-auto">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
         
         {/* Left Column: Campaign Launcher */}
         <div className="bg-white rounded-2xl p-6 shadow-sm border border-black/5 space-y-6">
@@ -1358,23 +1372,35 @@ function BulkEmailUI({ job, isCampaignRunning, campaignFile, campaignPreview, ca
             )}
           </div>
 
-          <button 
-            onClick={handleStartCampaign}
-            disabled={isCampaignRunning || !campaignFile || !!campaignError || campaignPreview.length === 0}
-            className="w-full py-3 bg-black text-white rounded-xl text-sm font-bold hover:bg-black/80 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
-          >
-            {isCampaignRunning ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Campaign Running...
-              </>
-            ) : (
-              <>
-                <Send className="w-4 h-4" />
-                Start Campaign
-              </>
+          <div className="flex gap-2">
+            <button 
+              onClick={handleStartCampaign}
+              disabled={isCampaignRunning || !campaignFile || !!campaignError || campaignPreview.length === 0}
+              className="flex-grow py-3 bg-black text-white rounded-xl text-sm font-bold hover:bg-black/80 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+            >
+              {isCampaignRunning ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Campaign Running...
+                </>
+              ) : (
+                <>
+                  <Send className="w-4 h-4" />
+                  Start Campaign
+                </>
+              )}
+            </button>
+            
+            {isCampaignRunning && (
+              <button 
+                onClick={handleStopCampaign}
+                className="px-6 py-3 bg-red-50 text-red-600 border border-red-100 rounded-xl text-sm font-bold hover:bg-red-100 transition-all flex items-center justify-center gap-2"
+              >
+                <X className="w-4 h-4" />
+                Stop
+              </button>
             )}
-          </button>
+          </div>
         </div>
 
         {/* Right Column: Campaign Status */}

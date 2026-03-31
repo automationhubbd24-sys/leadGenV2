@@ -35,6 +35,7 @@ const axiosInstance = axios.create({
 const jobs: { [key: string]: any } = {}; // For Bulk Email Campaigns
 const searchJobs: { [key: string]: any } = {}; // For Lead Searches
 const controllers: { [key: string]: AbortController } = {}; // For cancelling tasks
+const campaignControllers: { [key: string]: AbortController } = {}; // For cancelling email campaigns
 let cachedExecutablePath: string | undefined = undefined; // Global cache for successful browser path
 
 // --- UTILITY FUNCTIONS ---
@@ -409,6 +410,7 @@ async function callSearchLLM(prompt: string, configs: any[], system: string, sig
 
 async function runCampaign(jobId: string, leads: any[], smtps: any[]) {
   const job = jobs[jobId];
+  const controller = campaignControllers[jobId];
   let currentSmtpIndex = 0;
   const activeSmtps = smtps.map(s => ({ ...s, isInvalid: false }));
 
@@ -416,6 +418,13 @@ async function runCampaign(jobId: string, leads: any[], smtps: any[]) {
 
   try {
     for (let i = 0; i < leads.length; i++) {
+      if (controller?.signal.aborted || job.status === 'stopped') {
+        console.log(`[Campaign] Job ${jobId} stopped by user.`);
+        job.status = 'stopped';
+        job.progress = 'Campaign stopped by user.';
+        break;
+      }
+
       const lead = leads[i];
       const normalizedLead: any = {};
       Object.keys(lead).forEach(k => normalizedLead[k.toUpperCase().trim()] = lead[k]);
@@ -735,8 +744,23 @@ app.post('/api/campaign/start', upload.single('sheet'), async (req, res) => {
   });
   const jobId = `job_${Date.now()}`;
   jobs[jobId] = { id: jobId, status: 'running', total: jsonData.length, sent: 0, failed: 0, results: [], startTime: Date.now() };
+  campaignControllers[jobId] = new AbortController();
   res.json({ jobId, message: 'Campaign started.' });
   runCampaign(jobId, jsonData, smtps);
+});
+
+app.post('/api/campaign/stop/:jobId', (req, res) => {
+  const { jobId } = req.params;
+  if (campaignControllers[jobId]) {
+    campaignControllers[jobId].abort();
+    if (jobs[jobId]) {
+      jobs[jobId].status = 'stopped';
+      jobs[jobId].progress = 'ক্যাম্পেইন থামানো হয়েছে।';
+    }
+    res.json({ success: true });
+  } else {
+    res.status(404).json({ error: 'Job not found' });
+  }
 });
 
 app.get('/api/campaign/status/:jobId', (req, res) => {

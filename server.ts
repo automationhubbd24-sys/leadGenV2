@@ -35,6 +35,7 @@ const axiosInstance = axios.create({
 const jobs: { [key: string]: any } = {}; // For Bulk Email Campaigns
 const searchJobs: { [key: string]: any } = {}; // For Lead Searches
 const controllers: { [key: string]: AbortController } = {}; // For cancelling tasks
+let cachedExecutablePath: string | undefined = undefined; // Global cache for successful browser path
 
 // --- UTILITY FUNCTIONS ---
 
@@ -56,7 +57,7 @@ async function scrapeEmailsFromWebsite(url: string, signal?: AbortSignal) {
   
   console.log(`[Advanced Scraper] Launching browser for: ${url}`);
   
-  const executablePaths = [
+  const executablePaths = cachedExecutablePath ? [cachedExecutablePath] : [
     'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
     'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
     '/usr/bin/google-chrome',
@@ -64,7 +65,7 @@ async function scrapeEmailsFromWebsite(url: string, signal?: AbortSignal) {
     '/usr/bin/chromium',
     process.env.PUPPETEER_EXECUTABLE_PATH || '',
     process.env.CHROME_PATH || ''
-  ];
+  ].filter(p => p !== '');
 
   let browser;
   let launched = false;
@@ -77,6 +78,7 @@ async function scrapeEmailsFromWebsite(url: string, signal?: AbortSignal) {
         args: ['--no-sandbox', '--disable-setuid-sandbox']
       });
       launched = true;
+      cachedExecutablePath = path; // Cache it!
       break;
     } catch (e) {}
   }
@@ -155,7 +157,7 @@ async function scrapeGoogleMaps(query: string, location: string, jobId: string, 
   console.log(`[Puppeteer] Starting scrape for "${query}" in "${location}"...`);
   
   // Try common paths for Chrome on Windows and Linux
-  const executablePaths = [
+  const executablePaths = cachedExecutablePath ? [cachedExecutablePath] : [
     'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
     'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
     '/usr/bin/google-chrome',
@@ -170,16 +172,17 @@ async function scrapeGoogleMaps(query: string, location: string, jobId: string, 
 
   for (const path of executablePaths) {
     try {
-      console.log(`[Puppeteer] Attempting to launch with: ${path}`);
+      if (!cachedExecutablePath) console.log(`[Puppeteer] Attempting to launch with: ${path}`);
       browser = await puppeteer.launch({
         headless: true,
         executablePath: path,
         args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
       });
       launched = true;
+      cachedExecutablePath = path; // Cache it!
       break;
     } catch (e) {
-      console.log(`[Puppeteer] Failed to launch with ${path}: ${e.message}`);
+      if (!cachedExecutablePath) console.log(`[Puppeteer] Failed to launch with ${path}: ${e.message}`);
     }
   }
 
@@ -445,8 +448,18 @@ async function runCampaign(jobId: string, leads: any[], smtps: any[]) {
       let subject = spin(normalizedLead.SUBJECT || '');
       let body = spin(normalizedLead.BODY || '');
 
-      // The body is now pre-formatted HTML from the sheet, so just wrap it
-      const finalHtml = `<div style="font-family: sans-serif; line-height: 1.6; white-space: pre-wrap;">${body}</div>`;
+      // Replace placeholders {{KEY}} or KEY with actual values
+      Object.keys(normalizedLead).forEach(key => {
+        const val = String(normalizedLead[key] || '');
+        // For Subject
+        subject = subject.replace(new RegExp(`{{${key}}}`, 'gi'), val).replace(new RegExp(`\\b${key}\\b`, 'g'), val);
+        // For Body (Rich Text / HTML)
+        body = body.replace(new RegExp(`{{${key}}}`, 'gi'), val).replace(new RegExp(`\\b${key}\\b`, 'g'), val);
+      });
+
+      // The body might already be HTML from the sheet (if it has rich text)
+      // If it's plain text, we still want to preserve line breaks and markdown bold
+      const finalHtml = `<div style="font-family: sans-serif; line-height: 1.6; white-space: pre-wrap;">${body.replace(/\r?\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')}</div>`;
 
       try {
         await transporter.sendMail({
@@ -487,7 +500,11 @@ async function runSearch(jobId: string, params: any, apiConfigs: any[]) {
     // Phase 1: Deep Discovery
     console.log(`[Matrix Search] Phase 1: Deep Neighborhood Discovery...`);
     job.progress = "শহরের প্রতিটি এলাকা খুঁজে বের করছি (Deep Discovery)...";
-    const discoveryPrompt = `List EVERY neighborhood in "${locationStr}". Exhaustive list for matrix search. Comma-separated list ONLY. Provide at least 30 areas.`;
+    const discoveryPrompt = `List EVERY neighborhood, suburb, and district in "${locationStr}". 
+    Exhaustive list for matrix search. 
+    Format: Comma-separated list ONLY. 
+    CRITICAL: Do NOT include descriptions, notes, or general terms like "not a specific neighborhood". 
+    Provide at least 30 real area names.`;
     
     let discoveryResponse;
     try {
@@ -504,8 +521,12 @@ async function runSearch(jobId: string, params: any, apiConfigs: any[]) {
 
     // Safely parse areas
     const areasText = typeof discoveryResponse.text === 'string' ? discoveryResponse.text : locationStr;
-    const areasToSearch = [locationStr, ...areasText.split(',').map(a => a.trim())].filter(a => a.length > 2);
-    const uniqueAreas = [...new Set(areasToSearch)];
+    const rawAreas = areasText.split(',').map(a => a.trim());
+    
+    // Filter out junk areas and notes in parentheses
+    const cleanAreas = rawAreas.map(a => a.split('(')[0].trim()).filter(a => a.length > 2 && !a.toLowerCase().includes('not a specific'));
+    
+    const uniqueAreas = [...new Set([locationStr, ...cleanAreas])];
     console.log(`[Matrix Search] Total areas to scan: ${uniqueAreas.length}. Starting Scan...`);
 
     // Phase 2: Matrix Scan
@@ -672,20 +693,21 @@ app.post('/api/campaign/start', upload.single('sheet'), async (req, res) => {
   if (!smtps || smtps.length === 0) return res.status(400).json({ error: 'SMTP configurations required.' });
   const workbook = xlsx.read(req.file.buffer, { type: 'buffer', cellHTML: true });
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
-  const leads = xlsx.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+  const rawData = xlsx.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as any[][];
 
-  // Get rich text info
-  const headerRow = (leads.shift() as string[]).map(h => h.trim().toUpperCase());
-  const jsonData = leads.map(row => {
+  if (rawData.length === 0) return res.status(400).json({ error: 'Sheet is empty.' });
+
+  const headers = rawData[0].map((h: any) => String(h).trim().toUpperCase());
+  const jsonData = rawData.slice(1).map((row, rowIndex) => {
     const leadObj: any = {};
-    (row as string[]).forEach((cellValue, i) => {
-      const header = headerRow[i];
+    headers.forEach((header, colIndex) => {
       if (!header) return;
 
-      const cellAddress = xlsx.utils.encode_cell({ r: (leads.indexOf(row as any) + 1), c: i });
+      // Excel row index is 1-based. Header is row 1. First data row is 2.
+      const cellAddress = xlsx.utils.encode_cell({ r: rowIndex + 1, c: colIndex });
       const cell = sheet[cellAddress];
       
-      // Prioritize rich text HTML if it exists, otherwise use plain text
+      // cell.h is the HTML (rich text), cell.v is the raw value
       leadObj[header] = cell?.h || cell?.v || '';
     });
     return leadObj;

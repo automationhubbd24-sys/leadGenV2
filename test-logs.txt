@@ -1,0 +1,12 @@
+﻿[TEST] Starting scraper for "Plumber" in "New York"...
+[TEST] Navigating to: https://www.google.com/maps/search/Plumber%20in%20New%20York
+[TEST] Found results feed!
+[TEST] Found 10 leads!
+[TEST] Sample Lead: {
+  "name": "RR Plumbing Roto-Rooter",
+  "phone": "αº¿αº¬ αªÿαªúαºìαªƒαª╛ αªûαºïαª▓αª╛ ┬╖ +1 212-687-1215",
+  "rating": null,
+  "reviewCount": 0,
+  "mapsLink": "https://www.google.com/maps/place/RR+Plumbing+Roto-Rooter/data=!4m7!3m6!1s0x89c258ff0f7a7793:0xbedc0a7158ebea16!8m2!3d40.7513609!4d-73.9905976!16s%2Fg%2F11b5pk0r4w!19sChIJk3d6D_9YwokRFurrWHEK3L4?authuser=0&hl=bn&rclk=1"
+}
+[TEST] Browser closed.

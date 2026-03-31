@@ -1,0 +1,13 @@
+﻿[TEST] Starting scraper for "Plumber" in "New York"...
+[TEST] Navigating to: https://www.google.com/maps/search/Plumber%20in%20New%20York
+[TEST] Screenshot saved.
+[TEST] Found results!
+[TEST] Found 10 leads!
+[TEST] Sample Lead: {
+  "name": "A J Plumbing",
+  "phone": "",
+  "rating": null,
+  "reviewCount": null,
+  "mapsLink": "https://www.google.com/maps/place/A+J+Plumbing/data=!4m7!3m6!1s0x89c2ec9cd3075c3b:0x33b66248f14d31f0!8m2!3d41.013193!4d-73.877167!16s%2Fg%2F12htvnbsx!19sChIJO1wH05zswokR8DFN8UhitjM?authuser=0&hl=bn&rclk=1"
+}
+[TEST] Browser closed.

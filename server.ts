@@ -281,9 +281,18 @@ async function scrapeGoogleMaps(query: string, location: string, jobId: string, 
         const lowerQuery = query.toLowerCase();
         
         if (businessName.length > 0) {
+          // Find phone number using a more robust selector that works for multiple formats
+          const spans = Array.from(item.querySelectorAll('span'));
+          const phoneEl = spans.find(s => {
+            const text = s.textContent?.trim() || '';
+            // Match international phone formats: +880 1234-567890, 01712-345678, (123) 456-7890, etc.
+            return /^\+?[\d\s\-()]{7,20}$/.test(text) && (text.match(/\d/g) || []).length >= 7;
+          });
+          const phone = phoneEl?.textContent?.trim() || 'N/A';
+
           return {
             name: item.querySelector('.qBF1Pd')?.textContent?.trim() || 'Unknown',
-            phone: item.querySelector('.Us7fWe')?.textContent?.trim() || 'N/A',
+            phone: phone,
             website: item.querySelector('a[aria-label*="website"]')?.getAttribute('href') || 
                      item.querySelector('a[data-value*="Website"]')?.getAttribute('href') || undefined,
             rating: parseFloat(rating) || 0,
@@ -445,7 +454,7 @@ async function runCampaign(jobId: string, leads: any[], smtps: any[]) {
       try {
         await transporter.sendMail({
           from: `"${smtpConfig.senderName}" <${smtpConfig.user}>`,
-          to: targetEmail, subject: subject, html: `<div style="font-family: sans-serif; line-height: 1.6;">${body.replace(/\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')}</div>`,
+          to: targetEmail, subject: subject, html: `<div style="font-family: sans-serif; line-height: 1.6; white-space: pre-wrap;">${body.replace(/\r?\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')}</div>`,
         });
         job.sent++;
         job.results.push({ email: targetEmail, status: 'sent', smtpUser: smtpConfig.user, timestamp: Date.now() });

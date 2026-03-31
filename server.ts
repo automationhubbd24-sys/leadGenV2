@@ -445,16 +445,13 @@ async function runCampaign(jobId: string, leads: any[], smtps: any[]) {
       let subject = spin(normalizedLead.SUBJECT || '');
       let body = spin(normalizedLead.BODY || '');
 
-      Object.keys(normalizedLead).forEach(key => {
-        const val = String(normalizedLead[key] || '');
-        subject = subject.replace(new RegExp(`{{${key}}}`, 'gi'), val).replace(new RegExp(`\\b${key}\\b`, 'g'), val);
-        body = body.replace(new RegExp(`{{${key}}}`, 'gi'), val).replace(new RegExp(`\\b${key}\\b`, 'g'), val);
-      });
+      // The body is now pre-formatted HTML from the sheet, so just wrap it
+      const finalHtml = `<div style="font-family: sans-serif; line-height: 1.6; white-space: pre-wrap;">${body}</div>`;
 
       try {
         await transporter.sendMail({
           from: `"${smtpConfig.senderName}" <${smtpConfig.user}>`,
-          to: targetEmail, subject: subject, html: `<div style="font-family: sans-serif; line-height: 1.6; white-space: pre-wrap;">${body.replace(/\r?\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')}</div>`,
+          to: targetEmail, subject: subject, html: finalHtml,
         });
         job.sent++;
         job.results.push({ email: targetEmail, status: 'sent', smtpUser: smtpConfig.user, timestamp: Date.now() });
@@ -673,12 +670,30 @@ app.post('/api/campaign/start', upload.single('sheet'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded.' });
   const { smtps } = JSON.parse(req.body.config);
   if (!smtps || smtps.length === 0) return res.status(400).json({ error: 'SMTP configurations required.' });
-  const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
-  const leads = xlsx.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+  const workbook = xlsx.read(req.file.buffer, { type: 'buffer', cellHTML: true });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const leads = xlsx.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+
+  // Get rich text info
+  const headerRow = (leads.shift() as string[]).map(h => h.trim().toUpperCase());
+  const jsonData = leads.map(row => {
+    const leadObj: any = {};
+    (row as string[]).forEach((cellValue, i) => {
+      const header = headerRow[i];
+      if (!header) return;
+
+      const cellAddress = xlsx.utils.encode_cell({ r: (leads.indexOf(row as any) + 1), c: i });
+      const cell = sheet[cellAddress];
+      
+      // Prioritize rich text HTML if it exists, otherwise use plain text
+      leadObj[header] = cell?.h || cell?.v || '';
+    });
+    return leadObj;
+  });
   const jobId = `job_${Date.now()}`;
-  jobs[jobId] = { id: jobId, status: 'running', total: leads.length, sent: 0, failed: 0, results: [], startTime: Date.now() };
+  jobs[jobId] = { id: jobId, status: 'running', total: jsonData.length, sent: 0, failed: 0, results: [], startTime: Date.now() };
   res.json({ jobId, message: 'Campaign started.' });
-  runCampaign(jobId, leads, smtps);
+  runCampaign(jobId, jsonData, smtps);
 });
 
 app.get('/api/campaign/status/:jobId', (req, res) => {

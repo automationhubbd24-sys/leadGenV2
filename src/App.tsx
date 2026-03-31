@@ -1399,21 +1399,43 @@ function BulkEmailUI({ job, isCampaignRunning, campaignFile, campaignPreview, ca
                   <p className="text-xs text-gray-500">Total</p>
                 </div>
               </div>
-              <div className="text-xs text-center text-gray-500">
-                Status: <span className="font-bold uppercase">{job.status}</span>
+
+              {job.progress && (
+                <div className="bg-blue-50 text-blue-700 p-3 rounded-lg text-xs font-medium animate-pulse flex items-center gap-2">
+                  <Activity className="w-3 h-3" />
+                  {job.progress}
+                </div>
+              )}
+
+              <div className="text-xs text-center text-gray-500 flex items-center justify-center gap-2">
+                Status: <span className={cn(
+                  "font-bold uppercase px-2 py-0.5 rounded text-[10px]",
+                  job.status === 'running' ? "bg-blue-100 text-blue-700" : 
+                  job.status === 'completed' ? "bg-green-100 text-green-700" : 
+                  "bg-red-100 text-red-700"
+                )}>{job.status}</span>
               </div>
 
-              {job.results && job.results.filter((r: any) => r.status === 'failed').length > 0 && (
+              {/* Campaign Logs */}
+              {job.results && job.results.length > 0 && (
                 <div className="mt-4 space-y-2">
-                  <h3 className="text-xs font-bold uppercase text-red-500 flex items-center gap-1">
-                    <AlertCircle className="w-3 h-3" />
-                    Failed Leads Details
+                  <h3 className="text-xs font-bold uppercase text-black/40 flex items-center gap-1">
+                    <FileText className="w-3 h-3" />
+                    Campaign Activity Logs
                   </h3>
-                  <div className="max-h-40 overflow-y-auto border border-red-100 rounded-lg bg-red-50/30 p-2 space-y-1">
-                    {job.results.filter((r: any) => r.status === 'failed').map((res: any, i: number) => (
-                      <div key={i} className="text-[10px] flex flex-col border-b border-red-100 pb-1 last:border-0">
-                        <span className="font-bold text-red-700">{res.email || res.name || 'Unknown Lead'}</span>
-                        <span className="text-red-500/70 truncate">{res.error}</span>
+                  <div className="max-h-60 overflow-y-auto border border-black/5 rounded-lg bg-gray-50 p-2 space-y-1 font-mono">
+                    {[...job.results].reverse().map((res: any, i: number) => (
+                      <div key={i} className={cn(
+                        "text-[10px] p-1.5 rounded flex justify-between items-center border-b border-black/5 last:border-0",
+                        res.status === 'sent' ? "text-green-700 bg-green-50/50" : "text-red-700 bg-red-50/50"
+                      )}>
+                        <div className="flex flex-col">
+                          <span className="font-bold">{res.email || res.name}</span>
+                          {res.error && <span className="opacity-70 text-[9px]">{res.error}</span>}
+                        </div>
+                        <span className="text-[9px] opacity-50">
+                          {new Date(res.timestamp).toLocaleTimeString()}
+                        </span>
                       </div>
                     ))}
                   </div>

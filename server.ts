@@ -412,80 +412,101 @@ async function runCampaign(jobId: string, leads: any[], smtps: any[]) {
   let currentSmtpIndex = 0;
   const activeSmtps = smtps.map(s => ({ ...s, isInvalid: false }));
 
-  for (const lead of leads) {
-    const normalizedLead: any = {};
-    Object.keys(lead).forEach(k => normalizedLead[k.toUpperCase().trim()] = lead[k]);
+  console.log(`[Campaign] Started job ${jobId} with ${leads.length} leads.`);
 
-    const targetEmail = normalizedLead.EMAIL || normalizedLead.E_MAIL || normalizedLead.MAIL || '';
+  try {
+    for (let i = 0; i < leads.length; i++) {
+      const lead = leads[i];
+      const normalizedLead: any = {};
+      Object.keys(lead).forEach(k => normalizedLead[k.toUpperCase().trim()] = lead[k]);
 
-    if (!targetEmail) {
-      job.failed++;
-      job.results.push({ name: normalizedLead.NAME || 'Unknown', status: 'failed', error: 'No email found.', timestamp: Date.now() });
-      continue;
-    }
+      const targetEmail = normalizedLead.EMAIL || normalizedLead.E_MAIL || normalizedLead.MAIL || '';
+      const leadName = normalizedLead.NAME || 'Unknown';
 
-    let emailSent = false;
-    let attempts = 0;
-    let lastError = '';
-
-    while (!emailSent && attempts < activeSmtps.length) {
-      const smtpConfig = activeSmtps[currentSmtpIndex];
-      const dailyLimit = smtpConfig.dailyLimit || 100;
-      const sentToday = job.results.filter((r: any) => r.smtpUser === smtpConfig.user && r.status === 'sent' && new Date(r.timestamp).toDateString() === new Date().toDateString()).length;
-
-      if (smtpConfig.isInvalid || sentToday >= dailyLimit) {
-        currentSmtpIndex = (currentSmtpIndex + 1) % activeSmtps.length;
-        attempts++;
+      if (!targetEmail) {
+        job.failed++;
+        job.results.push({ name: leadName, status: 'failed', error: 'No email found.', timestamp: Date.now() });
+        job.progress = `Skipping ${leadName}: No email found.`;
         continue;
       }
 
-      const transporter = nodemailer.createTransport({
-        host: smtpConfig.host, port: smtpConfig.port, secure: smtpConfig.port === 465,
-        auth: { user: smtpConfig.user, pass: smtpConfig.pass },
-        connectionTimeout: 15000, socketTimeout: 20000,
-      });
+      job.progress = `Sending to ${targetEmail} (${i + 1}/${leads.length})...`;
+      console.log(`[Campaign] ${job.progress}`);
 
-      let subject = spin(normalizedLead.SUBJECT || '');
-      let body = spin(normalizedLead.BODY || '');
+      let emailSent = false;
+      let attempts = 0;
+      let lastError = '';
 
-      // Replace placeholders {{KEY}} or KEY with actual values
-      Object.keys(normalizedLead).forEach(key => {
-        const val = String(normalizedLead[key] || '');
-        // For Subject
-        subject = subject.replace(new RegExp(`{{${key}}}`, 'gi'), val).replace(new RegExp(`\\b${key}\\b`, 'g'), val);
-        // For Body (Rich Text / HTML)
-        body = body.replace(new RegExp(`{{${key}}}`, 'gi'), val).replace(new RegExp(`\\b${key}\\b`, 'g'), val);
-      });
+      while (!emailSent && attempts < activeSmtps.length) {
+        const smtpConfig = activeSmtps[currentSmtpIndex];
+        const dailyLimit = smtpConfig.dailyLimit || 100;
+        const sentToday = job.results.filter((r: any) => r.smtpUser === smtpConfig.user && r.status === 'sent' && new Date(r.timestamp).toDateString() === new Date().toDateString()).length;
 
-      // The body might already be HTML from the sheet (if it has rich text)
-      // If it's plain text, we still want to preserve line breaks and markdown bold
-      const finalHtml = `<div style="font-family: sans-serif; line-height: 1.6; white-space: pre-wrap;">${body.replace(/\r?\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')}</div>`;
+        if (smtpConfig.isInvalid || sentToday >= dailyLimit) {
+          currentSmtpIndex = (currentSmtpIndex + 1) % activeSmtps.length;
+          attempts++;
+          continue;
+        }
 
-      try {
-        await transporter.sendMail({
-          from: `"${smtpConfig.senderName}" <${smtpConfig.user}>`,
-          to: targetEmail, subject: subject, html: finalHtml,
+        const transporter = nodemailer.createTransport({
+          host: smtpConfig.host, port: smtpConfig.port, secure: smtpConfig.port === 465,
+          auth: { user: smtpConfig.user, pass: smtpConfig.pass },
+          connectionTimeout: 15000, socketTimeout: 20000,
         });
-        job.sent++;
-        job.results.push({ email: targetEmail, status: 'sent', smtpUser: smtpConfig.user, timestamp: Date.now() });
-        emailSent = true;
-        currentSmtpIndex = (currentSmtpIndex + 1) % activeSmtps.length;
-      } catch (error: any) {
-        lastError = error.message;
-        if (error.code === 'EAUTH' || error.responseCode === 535) smtpConfig.isInvalid = true;
-        currentSmtpIndex = (currentSmtpIndex + 1) % activeSmtps.length;
-        attempts++;
+
+        let subject = spin(normalizedLead.SUBJECT || '');
+        let body = spin(normalizedLead.BODY || '');
+
+        // Replace placeholders {{KEY}} or KEY with actual values
+        Object.keys(normalizedLead).forEach(key => {
+          const val = String(normalizedLead[key] || '');
+          // For Subject
+          subject = subject.replace(new RegExp(`{{${key}}}`, 'gi'), val).replace(new RegExp(`\\b${key}\\b`, 'g'), val);
+          // For Body (Rich Text / HTML)
+          body = body.replace(new RegExp(`{{${key}}}`, 'gi'), val).replace(new RegExp(`\\b${key}\\b`, 'g'), val);
+        });
+
+        // The body might already be HTML from the sheet (if it has rich text)
+        // If it's plain text, we still want to preserve line breaks and markdown bold
+        const finalHtml = `<div style="font-family: sans-serif; line-height: 1.6; white-space: pre-wrap;">${body.replace(/\r?\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')}</div>`;
+
+        try {
+          await transporter.sendMail({
+            from: `"${smtpConfig.senderName}" <${smtpConfig.user}>`,
+            to: targetEmail, subject: subject, html: finalHtml,
+          });
+          job.sent++;
+          job.results.push({ email: targetEmail, name: leadName, status: 'sent', smtpUser: smtpConfig.user, timestamp: Date.now() });
+          emailSent = true;
+          currentSmtpIndex = (currentSmtpIndex + 1) % activeSmtps.length;
+        } catch (error: any) {
+          lastError = error.message;
+          if (error.code === 'EAUTH' || error.responseCode === 535) smtpConfig.isInvalid = true;
+          currentSmtpIndex = (currentSmtpIndex + 1) % activeSmtps.length;
+          attempts++;
+        }
+      }
+
+      if (!emailSent) {
+        job.failed++;
+        job.results.push({ email: targetEmail, name: leadName, status: 'failed', error: lastError, timestamp: Date.now() });
+      }
+
+      // Only wait if it's not the last lead
+      if (i < leads.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, activeSmtps.length > 1 ? 2000 : 10000));
       }
     }
-
-    if (!emailSent) {
-      job.failed++;
-      job.results.push({ email: targetEmail, status: 'failed', error: lastError, timestamp: Date.now() });
-    }
-    await new Promise(resolve => setTimeout(resolve, activeSmtps.length > 1 ? 2000 : 10000));
+    job.status = 'completed';
+    job.progress = 'Campaign completed successfully.';
+  } catch (err: any) {
+    console.error(`[Campaign Error] ${jobId}:`, err.message);
+    job.status = 'failed';
+    job.progress = `Critical error: ${err.message}`;
+  } finally {
+    job.endTime = Date.now();
+    console.log(`[Campaign] Job ${jobId} finished with status: ${job.status}`);
   }
-  job.status = 'completed';
-  job.endTime = Date.now();
 }
 
 async function runSearch(jobId: string, params: any, apiConfigs: any[]) {

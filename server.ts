@@ -458,32 +458,56 @@ async function runCampaign(jobId: string, leads: any[], smtps: any[]) {
         }
 
         const transporter = nodemailer.createTransport({
-          host: smtpConfig.host, port: smtpConfig.port, secure: smtpConfig.port === 465,
-          auth: { user: smtpConfig.user, pass: smtpConfig.pass },
-          connectionTimeout: 15000, socketTimeout: 20000,
+        host: smtpConfig.host, port: smtpConfig.port, secure: smtpConfig.port === 465,
+        auth: { user: smtpConfig.user, pass: smtpConfig.pass },
+        connectionTimeout: 15000, socketTimeout: 20000,
+      });
+
+      let subject = spin(normalizedLead.SUBJECT || '');
+      let body = spin(normalizedLead.BODY || '');
+
+      // Replace placeholders {{KEY}} or KEY with actual values
+      Object.keys(normalizedLead).forEach(key => {
+        const val = String(normalizedLead[key] || '');
+        // For Subject
+        subject = subject.replace(new RegExp(`{{${key}}}`, 'gi'), val).replace(new RegExp(`\\b${key}\\b`, 'g'), val);
+        // For Body (Rich Text / HTML)
+        body = body.replace(new RegExp(`{{${key}}}`, 'gi'), val).replace(new RegExp(`\\b${key}\\b`, 'g'), val);
+      });
+
+      // Clean HTML from Excel (keep only safe tags like <b>, <br>, <i>)
+      const cleanBody = body
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '') // Remove <style> blocks
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '') // Remove <script> blocks
+        .replace(/<(?!\/?(b|i|br|p|div|strong|em|span|u|ul|li|ol))[^>]+>/gi, '') // Remove unsafe tags
+        .replace(/\s(style|class|id|width|height)="[^"]*"/gi, ''); // Remove inline styles/classes
+
+      // Ensure line breaks and markdown bold are handled for plain text leads
+      const finalContent = cleanBody.includes('<br>') || cleanBody.includes('<p>') 
+        ? cleanBody 
+        : cleanBody.replace(/\r?\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+
+      const finalHtml = `
+        <div style="font-family: Arial, sans-serif; line-height: 1.5; color: #1a1a1a;">
+          ${finalContent}
+        </div>
+      `;
+
+      try {
+        const messageId = `<${Date.now()}.${Math.random().toString(36).substring(7)}@${smtpConfig.host.split('.').slice(-2).join('.')}>`;
+        
+        await transporter.sendMail({
+          from: `"${smtpConfig.senderName}" <${smtpConfig.user}>`,
+          to: targetEmail, 
+          subject: subject, 
+          html: finalHtml,
+          messageId: messageId,
+          headers: {
+            'X-Mailer': 'LeadGenPro-Mailer',
+            'List-Unsubscribe': `<mailto:${smtpConfig.user}?subject=unsubscribe>`,
+            'Precedence': 'bulk'
+          }
         });
-
-        let subject = spin(normalizedLead.SUBJECT || '');
-        let body = spin(normalizedLead.BODY || '');
-
-        // Replace placeholders {{KEY}} or KEY with actual values
-        Object.keys(normalizedLead).forEach(key => {
-          const val = String(normalizedLead[key] || '');
-          // For Subject
-          subject = subject.replace(new RegExp(`{{${key}}}`, 'gi'), val).replace(new RegExp(`\\b${key}\\b`, 'g'), val);
-          // For Body (Rich Text / HTML)
-          body = body.replace(new RegExp(`{{${key}}}`, 'gi'), val).replace(new RegExp(`\\b${key}\\b`, 'g'), val);
-        });
-
-        // The body might already be HTML from the sheet (if it has rich text)
-        // If it's plain text, we still want to preserve line breaks and markdown bold
-        const finalHtml = `<div style="font-family: sans-serif; line-height: 1.6; white-space: pre-wrap;">${body.replace(/\r?\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')}</div>`;
-
-        try {
-          await transporter.sendMail({
-            from: `"${smtpConfig.senderName}" <${smtpConfig.user}>`,
-            to: targetEmail, subject: subject, html: finalHtml,
-          });
           job.sent++;
           job.results.push({ email: targetEmail, name: leadName, status: 'sent', smtpUser: smtpConfig.user, timestamp: Date.now() });
           emailSent = true;
@@ -501,9 +525,14 @@ async function runCampaign(jobId: string, leads: any[], smtps: any[]) {
         job.results.push({ email: targetEmail, name: leadName, status: 'failed', error: lastError, timestamp: Date.now() });
       }
 
-      // Only wait if it's not the last lead
+      // Delay between leads to avoid spam filters
+      // Use a random delay between 5 to 15 seconds for bulk sending
+      const baseDelay = activeSmtps.length > 1 ? 5000 : 15000;
+      const randomJitter = Math.floor(Math.random() * 5000);
+      const finalDelay = baseDelay + randomJitter;
+
       if (i < leads.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, activeSmtps.length > 1 ? 2000 : 10000));
+        await new Promise(resolve => setTimeout(resolve, finalDelay));
       }
     }
     job.status = 'completed';

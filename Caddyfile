@@ -1,0 +1,16 @@
+{
+    # Global options
+    servers {
+        protocol {
+            allow_h2c
+        }
+    }
+}
+
+:80 {
+    reverse_proxy /api/* app:3000
+
+    root * /srv
+    file_server
+    try_files {path} /index.html
+}
